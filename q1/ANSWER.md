@@ -13,7 +13,7 @@ Every call produces a frame every 20 ms that must be decoded, denoised, run thro
 
 What I would suspect, in order:
 
-- **CPU starvation per call, which surfaces as turn taking.** VAD and the turn detection model run locally on the agent's CPU. On a voice platform I built, a fractional vCPU per session looked fine in tests and was too small under real call load: end of turn detection slowed, and users called it "bad audio". Moving to about 1.5 vCPU per session fixed it. "Audio quality" complaints are often turn taking, not packet loss.
+- **CPU starvation per call, which surfaces as turn taking.** VAD and the turn detection model run locally on the agent's CPU. On a voice platform I built, a fractional vCPU per session was too small under real call load: end of turn detection slowed, and replies came late. Moving to about 1.5 vCPU per session fixed it. "Audio quality" complaints are often turn taking, not packet loss.
 - **Many calls in one Python process.** Pipecat runs on asyncio; DSP, base64 and JSON compete for one GIL. A process with 30 calls can need 2 cores and have 1 while the node shows 30%.
 - **CFS throttling.** Burn a container's quota in 70 ms of a 100 ms period and it pauses for 30 ms: lost frames on every call it hosts.
 - **Event loop lag, GC pauses, network jitter to OpenAI**, which sound identical to the caller.
@@ -87,7 +87,7 @@ My order:
 3. **CPU per session too thin**, seen first as slow end of turn, then as per process saturation.
 4. **OpenAI and Twilio limits**, as latency, refused sessions, or a quietly lower answer rate.
 
-Availability metrics miss the worst failures. I've seen answering machine detection silently dead for a while because an exception was swallowed; a call where inbound audio went to exact digital silence for about 50 s while the carrier reported it completed; and a misclassified provider error producing about 14 s of dead air. None paged anyone.
+Availability metrics miss the worst failures. I've seen answering machine detection silently dead for a while because an exception was swallowed; a call where inbound audio went to exact digital silence for about 50 s while the carrier reported it completed; and a misclassified provider error producing about 14 s of dead air. Uptime dashboards stayed green through all three.
 
 Detection, with an SLO on audio and turns rather than uptime:
 
