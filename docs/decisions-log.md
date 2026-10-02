@@ -17,3 +17,5 @@
 - Fix list shows hard gate fixes before soft ones, each ranked by threads affected then severity, so a soft re-ask seen in 7 threads does not bury a leak that fails 4.
 - `--json` writes q3/out/report.json (or `--out`) and prints only the path; exit code 3 for input errors, since 2 means NEEDS_REVIEW.
 - Text report folds transcript unicode to ASCII (em dash to "-", curly quotes to straight) so output is plain ASCII.
+- Judge schema: turn fields are an enum of the thread's caller ids (C<n>) instead of a regex pattern, since strict tool mode documents enum/anyOf but not pattern.
+- Judge prompt v2: turn ids A-open/C<t>/A<t>, agent lines only for context, corrections supersede, opener 'over the phone' is not a q5_choice answer. Cache key hashes the system prompt, tool schema and rendered user message.
