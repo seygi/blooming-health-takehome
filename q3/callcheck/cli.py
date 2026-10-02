@@ -35,7 +35,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("path", nargs="?", default=str(DEFAULT_PATH), help="dataset JSON")
     p.add_argument("--thread", help="only this thread id")
-    p.add_argument("--live", action="store_true", help="refresh model judgments (needs ANTHROPIC_API_KEY)")
+    p.add_argument("--live", action="store_true",
+                   help="refresh model judgments (needs ANTHROPIC_API_KEY, or CALLCHECK_BACKEND=claude-cli to go "
+                   "through the Claude Code CLI login)")
     p.add_argument("--json", action="store_true", help="write the JSON report and print its path")
     p.add_argument("--out", default=str(DEFAULT_JSON), help="JSON report path (default q3/out/report.json)")
     p.add_argument("--captured", help='JSON file {thread_id: {item_id: value}} of values the agent recorded')

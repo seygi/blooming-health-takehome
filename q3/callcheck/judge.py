@@ -65,6 +65,13 @@ API notes (logged in docs/decisions-log.md)
     and checks that a tool_use block came back (one retry otherwise). Determinism
     comes from the committed cache, not from temperature.
 
+Transports (CALLCHECK_BACKEND)
+    "api" (default) calls the Messages API with ANTHROPIC_API_KEY. "claude-cli" runs the Claude Code
+    CLI headless (`claude -p`) on the user's subscription, with the same system prompt, the same user
+    message and the tool's input_schema as `--json-schema`. The cache key ignores the transport, so
+    either one fills entries that a plain offline run finds; the transport is stored as metadata in
+    the cache entry and shown in the report header.
+
 Validation
     The tool input is validated in code: unknown item ids are dropped, missing
     items or answers outside the enum become "unclear" with confidence 0 and a
@@ -79,8 +86,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import sys
 import re
+import shutil
+import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -95,6 +104,8 @@ NOT_DISCUSSED = "not_discussed"
 CACHE_PATH = Path(__file__).resolve().parents[1] / "cache" / "judgments.json"
 
 Source = Literal["cache", "live", "fake"]
+Transport = Literal["api", "claude-cli"]
+BACKENDS = ("api", "claude-cli")
 
 
 @dataclass(frozen=True)
@@ -119,6 +130,9 @@ class Judgment:
     prompt_version: str
     source: Source
     notes: tuple[str, ...] = ()  # harness notes from validation (dropped turn ids, blanked quotes)
+    # how the model was reached ("api" or "claude-cli"); None for fakes and for cache entries older than
+    # the field. Metadata only: never part of the cache key.
+    transport: Transport | None = None
 
 
 class Judge(Protocol):
@@ -506,8 +520,102 @@ class ClaudeJudge:
                 items = parse_tool_input(spec, thread, block.input, notes)
                 for n in notes:
                     _warn(f"{thread.thread_id}: {n}")
-                return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "live", tuple(notes))
+                return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "live", tuple(notes),
+                                transport="api")
             _warn(f"{thread.thread_id}: no tool call on attempt {attempt} (stop_reason={resp.stop_reason})")
+        return None
+
+
+class ClaudeCliJudge:
+    """Live judge through the Claude Code CLI in headless mode (`claude -p`), on the user's subscription.
+
+    Same system prompt, same rendered user message, and the tool's input_schema as `--json-schema`, so the
+    model gets the same task as through the API and the cache key is identical. The answer comes back in
+    the `structured_output` key of the CLI's JSON result and goes through the same parse_tool_input.
+    ANTHROPIC_API_KEY is removed from the child environment so the CLI uses the subscription login.
+    No tools, no session file, no user settings, no MCP servers, no slash commands: the child sees only
+    the system prompt and the user message. One retry on any error; never raises.
+    """
+
+    def __init__(self, model: str | None = None, runner: Any = None, max_attempts: int = 2,
+                 timeout: float = 180, binary: str = "claude"):
+        self.model = model or os.environ.get("CALLCHECK_MODEL", DEFAULT_MODEL)
+        self._runner = runner  # stands in for subprocess.run in tests
+        self.max_attempts = max_attempts
+        self.timeout = timeout
+        self.binary = binary
+        self._disabled = False
+
+    @property
+    def available(self) -> bool:
+        if self._disabled:
+            return False
+        return self._runner is not None or shutil.which(self.binary) is not None
+
+    def command(self, spec: FlowSpec, thread: Thread) -> list[str]:
+        schema = build_tool(spec, thread)["input_schema"]
+        return [
+            self.binary, "-p",
+            "--model", self.model,
+            "--output-format", "json",
+            "--json-schema", json.dumps(schema, ensure_ascii=False),
+            "--system-prompt", SYSTEM_PROMPT,
+            "--tools", "",
+            "--no-session-persistence",
+            "--setting-sources", "",
+            "--strict-mcp-config",
+            "--disable-slash-commands",
+        ]
+
+    @staticmethod
+    def child_env() -> dict[str, str]:
+        return {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
+    def _attempt(self, spec: FlowSpec, thread: Thread) -> tuple[dict | None, str, str]:
+        """(structured output or None, model name reported by the CLI, error text)."""
+        run = self._runner or subprocess.run
+        try:
+            proc = run(self.command(spec, thread), input=build_user_message(spec, thread), capture_output=True,
+                       text=True, env=self.child_env(), timeout=self.timeout)
+        except subprocess.TimeoutExpired:
+            return None, self.model, f"timed out after {self.timeout:.0f}s"
+        except OSError as e:
+            if isinstance(e, FileNotFoundError):
+                self._disabled = True  # no binary: every thread would fail the same way
+            return None, self.model, f"could not start {self.binary!r}: {e}"
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip()[-200:]
+            return None, self.model, f"exit code {proc.returncode}: {tail}"
+        try:
+            out = json.loads(proc.stdout)
+        except (json.JSONDecodeError, TypeError):
+            return None, self.model, f"stdout is not JSON: {(proc.stdout or '')[:120]!r}"
+        if not isinstance(out, dict):
+            return None, self.model, "stdout JSON is not an object"
+        usage = out.get("modelUsage")
+        model = next(iter(usage)) if isinstance(usage, dict) and usage else self.model
+        if out.get("is_error"):
+            return None, model, f"CLI reported an error: {str(out.get('result'))[:200]}"
+        structured = out.get("structured_output")
+        if not isinstance(structured, dict):
+            return None, model, "no structured_output object in the CLI result"
+        return structured, model, ""
+
+    def judge(self, spec: FlowSpec, thread: Thread) -> Judgment | None:
+        if not self.available:
+            return None
+        for attempt in range(1, self.max_attempts + 1):
+            structured, model, error = self._attempt(spec, thread)
+            if structured is not None:
+                notes: list[str] = []
+                items = parse_tool_input(spec, thread, structured, notes)
+                for n in notes:
+                    _warn(f"{thread.thread_id}: {n}")
+                return Judgment(thread.thread_id, items, model, PROMPT_VERSION, "live", tuple(notes),
+                                transport="claude-cli")
+            _warn(f"{thread.thread_id}: claude CLI attempt {attempt}: {error}")
+            if self._disabled:
+                break
         return None
 
 
@@ -580,6 +688,7 @@ class CachedJudge:
             "prompt_version": j.prompt_version,
             "items": {iid: asdict(ij) for iid, ij in j.items.items()},
             "notes": list(j.notes),
+            "transport": j.transport,
         }
         data["entries"] = dict(sorted(data["entries"].items(), key=lambda kv: (kv[1]["thread_id"], kv[0])))
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -597,7 +706,9 @@ class CachedJudge:
             if entry is not None:
                 items = {iid: ItemJudgment(**ij) for iid, ij in entry["items"].items()}
                 notes = tuple(n for n in entry.get("notes", []) if isinstance(n, str))
-                return Judgment(thread.thread_id, items, entry["model"], entry["prompt_version"], "cache", notes)
+                transport = entry.get("transport") if entry.get("transport") in BACKENDS else None
+                return Judgment(thread.thread_id, items, entry["model"], entry["prompt_version"], "cache", notes,
+                                transport=transport)
         if not self._live_allowed():
             return None
         j = self.inner.judge(spec, thread)  # type: ignore[union-attr]
@@ -606,15 +717,36 @@ class CachedJudge:
         return j
 
 
+def backend() -> str:
+    """CALLCHECK_BACKEND: "api" (default, needs ANTHROPIC_API_KEY) or "claude-cli" (Claude Code CLI login)."""
+    name = os.environ.get("CALLCHECK_BACKEND", "api").strip() or "api"
+    if name not in BACKENDS:
+        _warn(f"unknown CALLCHECK_BACKEND {name!r}, using 'api' (choices: {', '.join(BACKENDS)})")
+        return "api"
+    return name
+
+
 def default_judge(live: bool = False) -> Judge:
-    """Cache first. Live calls happen on a cache miss when a key is set, or always when live=True."""
+    """Cache first. Live calls happen on a cache miss when a backend is usable, or always when live=True.
+
+    The backend only changes the transport. The cache key does not depend on it, so entries written
+    through either backend are found by a plain offline run.
+    """
     model = os.environ.get("CALLCHECK_MODEL", DEFAULT_MODEL)
-    inner = ClaudeJudge(model) if os.environ.get("ANTHROPIC_API_KEY") else None
+    inner: Judge | None
+    if backend() == "claude-cli":
+        cli = ClaudeCliJudge(model)
+        inner = cli if cli.available else None
+        if inner is None:
+            _warn("CALLCHECK_BACKEND=claude-cli but the claude binary is not on PATH; cache only")
+    else:
+        inner = ClaudeJudge(model) if os.environ.get("ANTHROPIC_API_KEY") else None
     return CachedJudge(inner, model=model, refresh=live)
 
 
 __all__ = [
-    "PROMPT_VERSION", "ItemJudgment", "Judgment", "Judge", "ClaudeJudge", "CachedJudge", "FakeJudge",
+    "PROMPT_VERSION", "ItemJudgment", "Judgment", "Judge", "ClaudeJudge", "ClaudeCliJudge", "CachedJudge",
+    "FakeJudge", "backend",
     "default_judge", "cache_key", "build_tool", "answer_enum", "parse_tool_input", "render_transcript",
     "turn_id",
 ]
@@ -641,9 +773,9 @@ def _main(argv: list[str] | None = None) -> int:
         j = judge.judge(spec, t)
         if j is None:
             missing += 1
-            print(f"{t.thread_id}: no judgment (no valid key and no cache entry)")
+            print(f"{t.thread_id}: no judgment (no usable backend and no cache entry)")
             continue
-        print(f"{t.thread_id} [{j.source}, {j.model}, {j.prompt_version}]")
+        print(f"{t.thread_id} [{j.source}, {j.model} via {j.transport or 'unknown'}, {j.prompt_version}]")
         for n in j.notes:
             print(f"  note: {n}")
         for iid, ij in j.items.items():

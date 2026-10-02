@@ -123,6 +123,7 @@ class ThreadReport:
     gates: dict[str, str] = field(default_factory=dict)  # gate -> "pass" | "fail" | "uncertain" | "n/a"
     expected_path: list[str] = field(default_factory=list)
     judge_source: str = "none"  # "cache" | "live" | "fake" | "hand" | "none"
+    judge_detail: str = ""  # e.g. "claude-sonnet-5-5 via claude-cli, prompt v2"; "" when there is no model
 
     @property
     def verdict(self) -> Verdict:
