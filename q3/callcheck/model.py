@@ -111,12 +111,20 @@ class Finding:
 @dataclass
 class ThreadReport:
     thread_id: str
-    verdict: Verdict
+    outcome_verdict: Verdict  # task gates only: correct_routing, decisive_answers, proper_termination
+    release_verdict: Verdict  # outcome plus clean_speech under the speech policy
     findings: list[Finding] = field(default_factory=list)
     reasons: list[str] = field(default_factory=list)
+    release_warnings: list[str] = field(default_factory=list)
+    speech_policy: str = "gate"  # "gate" | "soft"
     expected_terminal: str | None = None
     actual_terminal: str | None = None
     simulator_goal_marker: bool = False
-    gates: dict[str, str] = field(default_factory=dict)  # gate -> "pass" | "fail" | "uncertain"
+    gates: dict[str, str] = field(default_factory=dict)  # gate -> "pass" | "fail" | "uncertain" | "n/a"
     expected_path: list[str] = field(default_factory=list)
-    judge_source: str = "none"  # "cache" | "live" | "fake" | "none"
+    judge_source: str = "none"  # "cache" | "live" | "fake" | "hand" | "none"
+
+    @property
+    def verdict(self) -> Verdict:
+        """The overall verdict is the release verdict (it also drives the exit code)."""
+        return self.release_verdict

@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from callcheck.hand_labels import HAND_LABELS, L, hand_judge  # noqa: F401  (re-export for tests)
 
-# Verdicts the harness must give under HAND_LABELS and today's checks, with the deciding reason.
-EXPECTED_VERDICTS: dict[str, str] = {
-    "thread_01": "PASS",  # routed active -> medi_cal_active, clean close
-    "thread_02": "FAIL",  # talks past _complete, starts collecting PII
-    "thread_03": "FAIL",  # leaked "(Please let me know your answer.)"
-    "thread_04": "FAIL",  # leaked "This was the final message of this follow-up."
-    "thread_05": "FAIL",  # leaked "(Waiting for your response.)"
-    "thread_06": "FAIL",  # leaked "That was the final message of this follow-up."
-    "thread_07": "NEEDS_REVIEW",  # simulator stopped before any terminal; nothing else wrong
-    "thread_08": "PASS",  # closes on a _complete handoff: soft warning only (contradictory_close)
-    "thread_09": "FAIL",  # leaked "(Waiting for your answer.)"
-    "thread_10": "FAIL",  # leaked "(Waiting for your response.)"
+# (task outcome, release under speech policy "gate") the harness must give under HAND_LABELS, with the reason.
+EXPECTED_VERDICTS: dict[str, tuple[str, str]] = {
+    "thread_01": ("PASS", "PASS"),  # routed active -> medi_cal_active, clean close
+    "thread_02": ("FAIL", "FAIL"),  # talks past _complete, starts collecting PII
+    "thread_03": ("PASS", "FAIL"),  # leaked "(Please let me know your answer.)"
+    "thread_04": ("PASS", "FAIL"),  # leaked "This was the final message of this follow-up."
+    "thread_05": ("PASS", "FAIL"),  # leaked "(Waiting for your response.)"
+    "thread_06": ("PASS", "FAIL"),  # leaked "That was the final message of this follow-up."
+    "thread_07": ("NEEDS_REVIEW", "NEEDS_REVIEW"),  # simulator stopped before any terminal
+    "thread_08": ("PASS", "PASS"),  # closes on a _complete handoff: release warning only
+    "thread_09": ("NEEDS_REVIEW", "FAIL"),  # simulator stopped; leaked "(Waiting for your answer.)"
+    "thread_10": ("NEEDS_REVIEW", "FAIL"),  # simulator stopped; leaked "(Waiting for your response.)"
 }
 
 EXPECTED_TERMINALS: dict[str, str] = {

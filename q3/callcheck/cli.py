@@ -1,8 +1,11 @@
 """Command line entry point.
 
     uv run callcheck [path] [--thread ID] [--live] [--json] [--out FILE] [--captured FILE]
+                     [--speech-policy gate|soft]
 
-Exit codes: 0 all PASS, 1 any FAIL, 2 NEEDS_REVIEW and no FAIL, 3 usage or input error.
+Each thread gets a task outcome verdict (routing, answers, termination) and a release verdict (outcome
+plus clean speech under the speech policy). Exit codes follow the release verdict: 0 all PASS, 1 any
+FAIL, 2 NEEDS_REVIEW and no FAIL, 3 usage or input error.
 """
 
 from __future__ import annotations
@@ -13,9 +16,10 @@ import sys
 from pathlib import Path
 
 from callcheck.judge import default_judge
-from callcheck.load import load, load_min_confidence
+from callcheck.load import load, load_min_confidence, load_transport_mode
 from callcheck.report import DEFAULT_JSON, evaluate, exit_code, render_text, write_json
 from callcheck.routing import MIN_CONFIDENCE
+from callcheck.verdict import SPEECH_POLICIES
 
 DEFAULT_PATH = Path(__file__).resolve().parents[1] / "data" / "gym_agent_conversations.json"
 USAGE_ERROR = 3
@@ -25,7 +29,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="callcheck",
         description="Evaluate triage call transcripts against the engine_config flow.",
-        epilog="Exit codes: 0 all PASS, 1 any FAIL, 2 NEEDS_REVIEW and no FAIL, 3 usage or input error.",
+        epilog="Exit codes follow the release verdict: 0 all PASS, 1 any FAIL, 2 NEEDS_REVIEW and no FAIL, "
+        "3 usage or input error.",
     )
     p.add_argument("path", nargs="?", default=str(DEFAULT_PATH), help="dataset JSON")
     p.add_argument("--thread", help="only this thread id")
@@ -33,6 +38,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--json", action="store_true", help="write the JSON report and print its path")
     p.add_argument("--out", default=str(DEFAULT_JSON), help="JSON report path (default q3/out/report.json)")
     p.add_argument("--captured", help='JSON file {thread_id: {item_id: value}} of values the agent recorded')
+    p.add_argument(
+        "--speech-policy",
+        choices=SPEECH_POLICIES,
+        help="gate: a speech leak blocks release; soft: it is a release warning. Default: gate when "
+        "agent_config.transport_mode is voice, else soft",
+    )
     return p.parse_args(argv)
 
 
@@ -50,11 +61,20 @@ def _display(path: Path) -> str:
         return str(path)
 
 
+def speech_policy(explicit: str | None, transport_mode: str | None) -> tuple[str, str]:
+    """(policy, header note). Voice speaks every leak aloud, so speech gates release there by default."""
+    if explicit:
+        return explicit, f"{explicit} (set by --speech-policy)"
+    policy = "gate" if transport_mode == "voice" else "soft"
+    return policy, f"{policy} (default for agent_config.transport_mode = {transport_mode or 'unset'})"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         spec, threads = load(args.path)
         min_conf = load_min_confidence(args.path, MIN_CONFIDENCE)
+        policy, policy_note = speech_policy(args.speech_policy, load_transport_mode(args.path))
         captured = _load_captured(args.captured) if args.captured else {}
     except (OSError, ValueError, KeyError) as e:
         print(f"callcheck: cannot read input: {e}", file=sys.stderr)
@@ -66,12 +86,12 @@ def main(argv: list[str] | None = None) -> int:
             return USAGE_ERROR
 
     judge = default_judge(live=args.live)
-    reports = [evaluate(spec, t, judge, captured.get(t.thread_id), min_conf) for t in threads]
+    reports = [evaluate(spec, t, judge, captured.get(t.thread_id), min_conf, policy) for t in threads]
 
     if args.json:
         print(_display(write_json(reports, args.out)))
     else:
-        sys.stdout.write(render_text(reports))
+        sys.stdout.write(render_text(reports, policy_note))
     return exit_code(reports)
 
 

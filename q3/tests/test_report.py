@@ -36,8 +36,31 @@ def nojudge_reports(spec, threads):
 @pytest.mark.parametrize("tid", sorted(EXPECTED_VERDICTS))
 def test_verdict_under_hand_labels(hand_reports, tid):
     r = hand_reports[tid]
-    assert r.verdict == EXPECTED_VERDICTS[tid], r.reasons
+    assert (r.outcome_verdict, r.release_verdict) == EXPECTED_VERDICTS[tid], r.reasons
+    assert r.verdict == r.release_verdict
     assert r.judge_source == "hand"
+
+
+def test_thread_08_outcome_pass_with_release_warning(hand_reports):
+    r = hand_reports["thread_08"]
+    assert r.outcome_verdict == "PASS" and r.release_verdict == "PASS"
+    assert any("termination.contradictory_close" in w for w in r.release_warnings)
+
+
+@pytest.mark.parametrize("tid", ["thread_03", "thread_05", "thread_10"])
+def test_soft_speech_policy_releases_on_outcome(spec, threads, tid):
+    r = evaluate(spec, by_id(threads, tid), hand_judge(), speech_policy="soft")
+    assert r.release_verdict == r.outcome_verdict == EXPECTED_VERDICTS[tid][0]
+    assert any(w.startswith("WARN clean_speech") for w in r.release_warnings)
+    assert r.gates["clean_speech"] == "fail"  # the gate cell still shows the leak
+
+
+@pytest.mark.parametrize("tid", ["thread_07", "thread_09", "thread_10"])
+def test_routing_is_not_applicable_without_terminal(hand_reports, tid):
+    r = hand_reports[tid]
+    assert r.actual_terminal is None
+    assert r.gates["correct_routing"] == "n/a"
+    assert "n/a correct_routing: agent never reached a terminal" in r.reasons
 
 
 def test_thread_01_passes_all_gates(hand_reports):
@@ -49,7 +72,7 @@ def test_thread_01_passes_all_gates(hand_reports):
 def test_thread_07_review_reason_is_simulator_truncation(hand_reports):
     r = hand_reports["thread_07"]
     assert r.gates["proper_termination"] == "uncertain"
-    assert r.gates["correct_routing"] == "pass"
+    assert r.gates["correct_routing"] == "n/a"
     assert any("truncated_by_simulator" in reason for reason in r.reasons)
 
 
@@ -61,7 +84,7 @@ def test_volunteered_answers_are_soft_only(hand_reports):
 
 def test_no_judge_thread_02_still_fails(nojudge_reports):
     r = nojudge_reports["thread_02"]
-    assert r.verdict == "FAIL"
+    assert r.outcome_verdict == r.release_verdict == "FAIL"
     assert r.judge_source == "none"
     assert r.gates["correct_routing"] == "uncertain"
     assert r.gates["decisive_answers"] == "uncertain"
@@ -71,19 +94,19 @@ def test_no_judge_thread_02_still_fails(nojudge_reports):
 @pytest.mark.parametrize("tid", ["thread_01", "thread_07"])
 def test_no_judge_without_hard_failure_needs_review(nojudge_reports, tid):
     r = nojudge_reports[tid]
-    assert r.verdict == "NEEDS_REVIEW"
+    assert r.outcome_verdict == r.release_verdict == "NEEDS_REVIEW"
     assert any("routing.judge_unavailable" in reason for reason in r.reasons)
 
 
 def test_no_judge_never_passes(nojudge_reports):
-    assert all(r.verdict != "PASS" for r in nojudge_reports.values())
+    assert all(r.outcome_verdict != "PASS" and r.release_verdict != "PASS" for r in nojudge_reports.values())
 
 
 def test_wrong_terminal_fails_end_to_end(spec, threads):
     labels = dict(HAND_LABELS["thread_01"])
     labels["q2_active"] = L("q2_active", "inactive", 0.95, "it's not active", 1)
     r = evaluate(spec, by_id(threads, "thread_01"), FakeJudge({"thread_01": labels}))
-    assert r.verdict == "FAIL"
+    assert r.outcome_verdict == "FAIL"
     assert r.gates["correct_routing"] == "fail"
 
 
@@ -101,7 +124,12 @@ def test_text_report_shape(hand_reports):
     assert max(len(line) for line in text.splitlines()) <= 120
     assert "FIX LIST" in text
     assert "not ground truth" in text
-    assert "TOTAL 10 threads: PASS 2  FAIL 7  NEEDS_REVIEW 1" in text
+    assert "Task outcome: PASS 6, FAIL 1, NEEDS_REVIEW 3. Release: PASS 2, FAIL 7, NEEDS_REVIEW 1." in text
+    assert "Top blocker: hygiene.stage_direction (4 threads, one template fix)." in " ".join(text.split())
+    assert "speech policy: gate" in text
+    head = next(ln for ln in text.splitlines() if ln.startswith("thread "))
+    assert "outcome" in head and "release" in head
+    assert "PASS*" in next(ln for ln in text.splitlines() if ln.startswith("thread_08"))
     assert "\u2014" not in text
 
 
@@ -114,8 +142,11 @@ def test_fix_list_ranks_by_threads_affected(hand_reports):
 
 def test_json_shape(hand_reports):
     data = to_json(list(hand_reports.values()))
-    assert data["counts"] == {"PASS": 2, "FAIL": 7, "NEEDS_REVIEW": 1}
+    assert data["counts"] == {"outcome": {"PASS": 6, "FAIL": 1, "NEEDS_REVIEW": 3},
+                              "release": {"PASS": 2, "FAIL": 7, "NEEDS_REVIEW": 1}}
+    assert data["speech_policy"] == ["gate"]
     t = next(t for t in data["threads"] if t["thread_id"] == "thread_01")
+    assert t["outcome_verdict"] == t["release_verdict"] == "PASS"
     assert t["gates"]["correct_routing"] == "pass" and t["expected_path"] == ["q1_intent", "q2_active"]
     t7 = next(t for t in data["threads"] if t["thread_id"] == "thread_07")
     assert any(f["uncertain"] for f in t7["findings"])
@@ -128,10 +159,10 @@ def test_json_shape(hand_reports):
 def _report(verdict):
     from callcheck.model import ThreadReport
 
-    return ThreadReport(thread_id="t", verdict=verdict)
+    return ThreadReport(thread_id="t", outcome_verdict="PASS", release_verdict=verdict)
 
 
-def test_exit_codes():
+def test_exit_codes_follow_release():
     assert exit_code([_report("PASS")]) == 0
     assert exit_code([_report("PASS"), _report("NEEDS_REVIEW")]) == 2
     assert exit_code([_report("NEEDS_REVIEW"), _report("FAIL")]) == 1
@@ -176,7 +207,7 @@ def test_cli_json_written(no_cache, tmp_path, capsys):
     assert printed.endswith("report.json")
     data = json.loads(out.read_text())
     assert len(data["threads"]) == 10
-    assert data["counts"]["FAIL"] >= 1
+    assert data["counts"]["release"]["FAIL"] >= 1
 
 
 def test_cli_captured_file(monkeypatch, tmp_path, capsys):
@@ -193,3 +224,22 @@ def test_cli_bad_captured_file(tmp_path):
     cap = tmp_path / "captured.json"
     cap.write_text("[1, 2]")
     assert cli.main(["--captured", str(cap)]) == 3
+
+
+def test_cli_speech_policy_default_voice(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "default_judge", lambda live=False: hand_judge())
+    assert cli.main(["--thread", "thread_05"]) == 1  # voice: the leak blocks release
+    out = capsys.readouterr().out
+    assert "speech policy: gate (default for agent_config.transport_mode = voice)" in out
+
+
+def test_cli_speech_policy_soft(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "default_judge", lambda live=False: hand_judge())
+    assert cli.main(["--thread", "thread_05", "--speech-policy", "soft"]) == 0
+    assert "speech policy: soft (set by --speech-policy)" in capsys.readouterr().out
+
+
+def test_speech_policy_default_text_mode():
+    assert cli.speech_policy(None, "text")[0] == "soft"
+    assert cli.speech_policy(None, None)[0] == "soft"
+    assert cli.speech_policy(None, "voice")[0] == "gate"

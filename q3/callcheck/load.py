@@ -50,3 +50,10 @@ def load_min_confidence(path: str | Path, default: float = 0.7) -> float:
     if isinstance(node, bool) or not isinstance(node, (int, float)) or not 0 <= node <= 1:
         return default
     return float(node)
+
+
+def load_transport_mode(path: str | Path) -> str | None:
+    """agent_config.transport_mode ("voice", ...) or None when absent."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    mode = data.get("agent_config", {}).get("transport_mode") if isinstance(data, dict) else None
+    return mode if isinstance(mode, str) else None
