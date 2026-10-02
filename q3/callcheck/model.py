@@ -103,6 +103,9 @@ class Finding:
     problem: str
     fix_hint: str
     owner: Owner
+    # True when the harness cannot confirm the problem (simulator cut the episode, judge missing or
+    # unsure). An uncertain finding never yields FAIL on its own; it yields NEEDS_REVIEW.
+    uncertain: bool = False
 
 
 @dataclass
