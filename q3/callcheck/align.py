@@ -41,8 +41,8 @@ WINDOW_PAD = 2
 # has only 2 of 4 tokens from "Take care.", so it stays in residual.
 SENTENCE_COVERED = 0.6
 
-_DASHES = re.compile(r"[‒–—―\-]")
-_APOSTROPHES = re.compile(r"[‘’ʼ'`]")
+_DASHES = re.compile("[\u2012\u2013\u2014\u2015\\-]")
+_APOSTROPHES = re.compile("[\u2018\u2019\u02bc'`]")
 _NON_WORD = re.compile(r"[^a-z0-9\s]")
 _SPACES = re.compile(r"\s+")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?:;])\s+|\n+")
@@ -51,7 +51,7 @@ _NODE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 def normalize(text: str) -> str:
     text = text.lower()
-    text = text.replace("“", '"').replace("”", '"')
+    text = text.replace("\u201c", '"').replace("\u201d", '"')
     text = _APOSTROPHES.sub("", text)  # "that's" -> "thats"
     text = _DASHES.sub(" ", text)  # "medi-cal" -> "medi cal", em dash -> space
     text = _NON_WORD.sub(" ", text)

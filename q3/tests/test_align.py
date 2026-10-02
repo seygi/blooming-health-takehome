@@ -8,7 +8,7 @@ def by_id(threads, thread_id):
 
 
 def test_normalize_unifies_quotes_dashes_and_punctuation():
-    assert normalize("That’s great news — it’s Medi-Cal!") == "thats great news its medi cal"
+    assert normalize("That\u2019s great news \u2014 it\u2019s Medi-Cal!") == "thats great news its medi cal"
 
 
 @pytest.mark.parametrize(
