@@ -37,7 +37,7 @@ def nojudge_reports(spec, threads):
 def test_verdict_under_hand_labels(hand_reports, tid):
     r = hand_reports[tid]
     assert r.verdict == EXPECTED_VERDICTS[tid], r.reasons
-    assert r.judge_source == "fake"
+    assert r.judge_source == "hand"
 
 
 def test_thread_01_passes_all_gates(hand_reports):
