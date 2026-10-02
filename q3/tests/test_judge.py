@@ -56,8 +56,8 @@ def test_answer_enum_decline_has_all_reasons(spec):
         assert sid in enum
 
 
-def test_tool_schema_is_strict_and_covers_every_item(spec):
-    tool = build_tool(spec)
+def test_tool_schema_is_strict_and_covers_every_item(spec, threads):
+    tool = build_tool(spec, _thread(threads, "thread_01"))
     assert tool["strict"] is True
     items = tool["input_schema"]["properties"]["items"]
     assert set(items["required"]) == set(spec.items)
@@ -68,13 +68,56 @@ def test_tool_schema_is_strict_and_covers_every_item(spec):
     assert q2["additionalProperties"] is False
 
 
+def test_tool_schema_turn_fields_are_caller_turn_ids(spec, threads):
+    # Strict mode documents enum and anyOf, not pattern, so the caller ids of this
+    # thread are an enum: every value matches ^C\\d+$ and names a real caller turn.
+    t = _thread(threads, "thread_01")
+    q2 = build_tool(spec, t)["input_schema"]["properties"]["items"]["properties"]["q2_active"]
+    for field in ("evidence_turn", "first_available_turn"):
+        variants = q2["properties"][field]["anyOf"]
+        assert {"type": "null"} in variants
+        ids = next(v["enum"] for v in variants if v.get("type") == "string")
+        assert ids == ["C0", "C1", "C2"]
+
+
+def test_tool_schema_no_caller_turns_only_null(spec):
+    t = Thread("empty", [Message(-1, "agent", "Hi", "Hi")], 0, False)
+    q2 = build_tool(spec, t)["input_schema"]["properties"]["items"]["properties"]["q2_active"]
+    assert q2["properties"]["evidence_turn"] == {"type": "null"}
+
+
 # ---- transcript rendering and cache key -------------------------------------
 
 
-def test_render_transcript_numbered_turns(threads):
+def test_render_transcript_turn_ids(threads):
     text = render_transcript(_thread(threads, "thread_01"))
-    assert text.splitlines()[0].startswith("[-1] AGENT: First")
-    assert "[0] CALLER: Yes, please." in text
+    lines = text.splitlines()
+    assert lines[0].startswith("[A-open] AGENT: First")
+    assert "[C0] CALLER: Yes, please." in text
+    assert "[A0] AGENT: Our records show" in text
+    assert "[C1] CALLER: Oh, that" in text
+    assert "[-1]" not in text and "[0]" not in text
+
+
+def test_render_transcript_every_line_labelled_or_indented(threads):
+    # thread_05 and thread_09 have multi line agent messages, thread_01 has a blank line.
+    for t in threads:
+        for line in render_transcript(t).splitlines():
+            assert line.startswith("[") or line.startswith("    "), (t.thread_id, line)
+            assert line.strip(), (t.thread_id, "blank line")
+
+
+def test_render_transcript_continuation_follows_its_turn(threads):
+    text = render_transcript(_thread(threads, "thread_01"))
+    lines = text.splitlines()
+    i = next(n for n, line in enumerate(lines) if line.startswith("[A0]"))
+    assert lines[i + 1] == "    Please let me know."
+
+
+def test_turn_ids():
+    assert J.turn_id("caller", 3) == "C3"
+    assert J.turn_id("agent", 3) == "A3"
+    assert J.turn_id("agent", -1) == "A-open"
 
 
 def test_render_transcript_has_no_goal_marker(threads):
@@ -138,7 +181,7 @@ def test_cache_key_differs_between_threads(spec, threads):
 # ---- validation of the tool output ------------------------------------------
 
 
-def _good_item(answer="active", turn=1):
+def _good_item(answer="active", turn="C1"):
     return {"evidence": "I definitely have active coverage", "answer": answer, "confidence": 0.95,
             "evidence_turn": turn, "first_available_turn": turn, "value": None}
 
@@ -182,12 +225,42 @@ def test_parse_unknown_item_ignored_and_garbage_never_crashes(spec, threads):
 
 def test_parse_clamps_confidence_and_drops_non_caller_turn(spec, threads):
     t = _thread(threads, "thread_01")
-    raw = {"items": {"q2_active": {**_good_item(), "confidence": 7, "evidence_turn": 42,
-                                   "first_available_turn": -1}}}
-    j = parse_tool_input(spec, t, raw)["q2_active"]
+    raw = {"items": {"q2_active": {**_good_item(), "confidence": 7, "evidence_turn": "C42",
+                                   "first_available_turn": "A-open"}}}
+    notes: list[str] = []
+    j = parse_tool_input(spec, t, raw, notes)["q2_active"]
     assert j.confidence == 1.0
-    assert j.evidence_turn is None  # 42 is not a caller turn
-    assert j.first_available_turn is None  # -1 is an agent turn
+    assert j.evidence_turn is None  # C42 is not a caller turn of this thread
+    assert j.first_available_turn is None  # A-open is the agent opener
+    assert any("C42" in n and "q2_active" in n for n in notes)
+    assert any("A-open" in n for n in notes)
+
+
+def test_parse_maps_caller_ids_to_int_turns(spec, threads):
+    t = _thread(threads, "thread_01")
+    raw = {"items": {"q2_active": {**_good_item(), "evidence_turn": "C1", "first_available_turn": "C1"}}}
+    notes: list[str] = []
+    j = parse_tool_input(spec, t, raw, notes)["q2_active"]
+    assert (j.evidence_turn, j.first_available_turn) == (1, 1)
+    assert notes == []
+
+
+def test_parse_agent_turn_id_becomes_none_with_note(spec, threads):
+    t = _thread(threads, "thread_01")
+    raw = {"items": {"q2_active": {**_good_item(), "evidence_turn": "A1", "first_available_turn": "C1"}}}
+    notes: list[str] = []
+    j = parse_tool_input(spec, t, raw, notes)["q2_active"]
+    assert j.evidence_turn is None and j.first_available_turn == 1
+    assert any("A1" in n and "agent" in n for n in notes)
+
+
+def test_parse_bare_int_turn_rejected_with_note(spec, threads):
+    t = _thread(threads, "thread_01")
+    raw = {"items": {"q2_active": {**_good_item(), "evidence_turn": 1, "first_available_turn": 1}}}
+    notes: list[str] = []
+    j = parse_tool_input(spec, t, raw, notes)["q2_active"]
+    assert j.evidence_turn is None and j.first_available_turn is None
+    assert notes
 
 
 # ---- judges -------------------------------------------------------------------
@@ -238,7 +311,7 @@ def test_captures_value_derived_from_spec(spec):
 
 def test_q3_plan_value_normalized_to_option(spec, threads):
     raw = {"items": {"q3_plan": {"evidence": "covered by Kaiser Permanente", "answer": "__close__",
-                                 "confidence": 0.95, "evidence_turn": 2, "first_available_turn": 0,
+                                 "confidence": 0.95, "evidence_turn": "C2", "first_available_turn": "C0",
                                  "value": "kaiser permanente"},
                      "q2_active": {**_good_item(), "value": "should be dropped"}}}
     items = parse_tool_input(spec, _thread(threads, "thread_09"), raw)
@@ -287,8 +360,8 @@ class _Client:
 def _tool_input(spec):
     items = {iid: {"evidence": "", "answer": NOT_DISCUSSED, "confidence": 0.9, "evidence_turn": None,
                    "first_available_turn": None, "value": None} for iid in spec.items}
-    items["q1_intent"] = {"evidence": "Yes, please.", "answer": "yes", "confidence": 0.97, "evidence_turn": 0,
-                          "first_available_turn": 0, "value": None}
+    items["q1_intent"] = {"evidence": "Yes, please.", "answer": "yes", "confidence": 0.97, "evidence_turn": "C0",
+                          "first_available_turn": "C0", "value": None}
     return {"items": items}
 
 
@@ -301,7 +374,10 @@ def test_claude_judge_request_shape(spec, threads):
     assert call["tool_choice"]["type"] == "auto"  # forced tool_choice is a 400 on this model
     assert "temperature" not in call  # non default temperature is a 400 on this model
     assert call["tools"][0]["strict"] is True
-    assert "[0] CALLER: Yes, please." in call["messages"][0]["content"]
+    assert "[C0] CALLER: Yes, please." in call["messages"][0]["content"]
+    assert j.items["q1_intent"].evidence_turn == 0
+    turn_schema = call["tools"][0]["input_schema"]["properties"]["items"]["properties"]["q1_intent"]
+    assert {"type": "string", "enum": ["C0", "C1", "C2"]} in turn_schema["properties"]["evidence_turn"]["anyOf"]
 
 
 def test_claude_judge_retries_once_without_tool_call(spec, threads):

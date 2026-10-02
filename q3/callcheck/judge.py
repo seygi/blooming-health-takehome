@@ -62,6 +62,7 @@ import hashlib
 import json
 import os
 import sys
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -96,6 +97,7 @@ class Judgment:
     model: str
     prompt_version: str
     source: Source
+    notes: tuple[str, ...] = ()  # harness notes from validation (dropped turn ids, blanked quotes)
 
 
 class Judge(Protocol):
@@ -182,8 +184,33 @@ def render_items(spec: FlowSpec) -> str:
     return "\n\n".join(blocks)
 
 
+CONTINUATION_INDENT = "    "
+_CALLER_ID = re.compile(r"^C(\d+)$")
+
+
+def turn_id(role: str, turn: int) -> str:
+    """Transcript label: C<t> for caller turns, A<t> for agent turns, A-open for the opener."""
+    if role == "caller":
+        return f"C{turn}"
+    return "A-open" if turn < 0 else f"A{turn}"
+
+
+def caller_turn_ids(thread: Thread) -> list[str]:
+    return [turn_id("caller", m.turn) for m in thread.caller_messages()]
+
+
 def render_transcript(thread: Thread) -> str:
-    return "\n".join(f"[{m.turn}] {m.role.upper()}: {m.text}" for m in thread.messages)
+    """One labelled line per message; continuation lines indented, blank lines dropped.
+
+    Distinct C and A prefixes keep the model from citing an agent turn as caller
+    evidence, and indentation keeps every line attributable to a speaker.
+    """
+    out = []
+    for m in thread.messages:
+        lines = [ln.strip() for ln in m.text.splitlines() if ln.strip()] or [""]
+        out.append(f"[{turn_id(m.role, m.turn)}] {m.role.upper()}: {lines[0]}")
+        out.extend(CONTINUATION_INDENT + ln for ln in lines[1:])
+    return "\n".join(out)
 
 
 def build_user_message(spec: FlowSpec, thread: Thread) -> str:
@@ -198,7 +225,16 @@ def _nullable(t: str) -> dict:
     return {"anyOf": [{"type": t}, {"type": "null"}]}
 
 
-def build_tool(spec: FlowSpec) -> dict:
+def _turn_schema(thread: Thread, description: str) -> dict:
+    # Strict tool use documents enum and anyOf but not pattern, so the caller turn ids of
+    # this thread are an enum (each matches ^C\d+$). Agent ids cannot be emitted at all.
+    ids = caller_turn_ids(thread)
+    if not ids:
+        return {"type": "null"}
+    return {"anyOf": [{"type": "string", "enum": ids}, {"type": "null"}], "description": description}
+
+
+def build_tool(spec: FlowSpec, thread: Thread) -> dict:
     item_props = {}
     for item in spec.items.values():
         item_props[item.id] = {
@@ -208,8 +244,8 @@ def build_tool(spec: FlowSpec) -> dict:
                 "evidence": {"type": "string", "description": "Verbatim CALLER quote, or empty if not_discussed."},
                 "answer": {"type": "string", "enum": answer_enum(item)},
                 "confidence": {"type": "number", "description": "0 to 1, calibrated."},
-                "evidence_turn": _nullable("integer"),
-                "first_available_turn": _nullable("integer"),
+                "evidence_turn": _turn_schema(thread, "Caller turn id of the evidence quote, like C3."),
+                "first_available_turn": _turn_schema(thread, "Earliest caller turn id holding this information."),
                 "value": _nullable("string"),
             },
             "required": ["evidence", "answer", "confidence", "evidence_turn", "first_available_turn", "value"],
@@ -244,10 +280,20 @@ def _unclear(item_id: str, note: str) -> ItemJudgment:
     return ItemJudgment(item_id, UNCLEAR, 0.0, f"[harness] {note}", None, None, None)
 
 
-def _turn(v: Any, caller_turns: set[int]) -> int | None:
-    if isinstance(v, bool) or not isinstance(v, int):
+def _turn(v: Any, caller_turns: set[int], where: str, notes: list[str]) -> int | None:
+    """Map a caller turn id ("C3") back to the int caller turn. Anything else is None with a note."""
+    if v is None:
         return None
-    return v if v in caller_turns else None
+    m = _CALLER_ID.match(v) if isinstance(v, str) else None
+    if m is None:
+        kind = "an agent turn id" if isinstance(v, str) and v.startswith("A") else "not a caller turn id"
+        notes.append(f"{where} {v!r} is {kind}, set to null")
+        return None
+    t = int(m.group(1))
+    if t not in caller_turns:
+        notes.append(f"{where} {v!r} is not a caller turn of this thread, set to null")
+        return None
+    return t
 
 
 def _normalize_plan(value: str, options: list[str]) -> str:
@@ -257,7 +303,7 @@ def _normalize_plan(value: str, options: list[str]) -> str:
     return value.strip()
 
 
-def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int]) -> ItemJudgment:
+def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int], notes: list[str]) -> ItemJudgment:
     if not isinstance(raw, dict):
         return _unclear(item.id, "item missing from model output")
     answer = raw.get("answer")
@@ -267,8 +313,8 @@ def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int]) -> ItemJu
     confidence = float(conf) if isinstance(conf, (int, float)) and not isinstance(conf, bool) else 0.0
     confidence = min(1.0, max(0.0, confidence))
     evidence = raw.get("evidence") if isinstance(raw.get("evidence"), str) else ""
-    ev_turn = _turn(raw.get("evidence_turn"), caller_turns)
-    first = _turn(raw.get("first_available_turn"), caller_turns)
+    ev_turn = _turn(raw.get("evidence_turn"), caller_turns, f"{item.id}.evidence_turn", notes)
+    first = _turn(raw.get("first_available_turn"), caller_turns, f"{item.id}.first_available_turn", notes)
     value = raw.get("value") if isinstance(raw.get("value"), str) and raw.get("value").strip() else None
     if answer == NOT_DISCUSSED:
         return ItemJudgment(item.id, answer, confidence, "", None, None, None)
@@ -283,13 +329,16 @@ def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int]) -> ItemJu
     return ItemJudgment(item.id, answer, confidence, evidence, ev_turn, first, value)
 
 
-def parse_tool_input(spec: FlowSpec, thread: Thread, raw: Any) -> dict[str, ItemJudgment]:
-    """Validate the model's tool input. Never raises."""
+def parse_tool_input(
+    spec: FlowSpec, thread: Thread, raw: Any, notes: list[str] | None = None
+) -> dict[str, ItemJudgment]:
+    """Validate the model's tool input. Never raises. Harness notes are appended to `notes`."""
+    sink: list[str] = [] if notes is None else notes
     caller_turns = {m.turn for m in thread.caller_messages()}
     items_raw = raw.get("items") if isinstance(raw, dict) else None
     if not isinstance(items_raw, dict):
         items_raw = {}
-    return {iid: _one(spec, item, items_raw.get(iid), caller_turns) for iid, item in spec.items.items()}
+    return {iid: _one(spec, item, items_raw.get(iid), caller_turns, sink) for iid, item in spec.items.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +376,7 @@ class ClaudeJudge:
         if not self.available:
             return None
         client = self._get_client()
-        tool = build_tool(spec)
+        tool = build_tool(spec, thread)
         messages = [{"role": "user", "content": build_user_message(spec, thread)}]
         import anthropic
 
@@ -359,8 +408,11 @@ class ClaudeJudge:
                 return None
             block = next((b for b in resp.content if b.type == "tool_use" and b.name == TOOL_NAME), None)
             if block is not None:
-                items = parse_tool_input(spec, thread, block.input)
-                return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "live")
+                notes: list[str] = []
+                items = parse_tool_input(spec, thread, block.input, notes)
+                for n in notes:
+                    _warn(f"{thread.thread_id}: {n}")
+                return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "live", tuple(notes))
             _warn(f"{thread.thread_id}: no tool call on attempt {attempt} (stop_reason={resp.stop_reason})")
         return None
 
@@ -394,7 +446,7 @@ def cache_key(model: str, spec: FlowSpec, thread: Thread) -> str:
     depends on someone remembering to bump it: any edit to the rules, the schema, the
     item rendering or the transcript format changes the hash.
     """
-    tool_json = json.dumps(build_tool(spec), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    tool_json = json.dumps(build_tool(spec, thread), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     parts = [
         model,
         PROMPT_VERSION,
@@ -433,6 +485,7 @@ class CachedJudge:
             "model": j.model,
             "prompt_version": j.prompt_version,
             "items": {iid: asdict(ij) for iid, ij in j.items.items()},
+            "notes": list(j.notes),
         }
         data["entries"] = dict(sorted(data["entries"].items(), key=lambda kv: (kv[1]["thread_id"], kv[0])))
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -449,7 +502,8 @@ class CachedJudge:
             entry = self._load()["entries"].get(key)
             if entry is not None:
                 items = {iid: ItemJudgment(**ij) for iid, ij in entry["items"].items()}
-                return Judgment(thread.thread_id, items, entry["model"], entry["prompt_version"], "cache")
+                notes = tuple(n for n in entry.get("notes", []) if isinstance(n, str))
+                return Judgment(thread.thread_id, items, entry["model"], entry["prompt_version"], "cache", notes)
         if not self._live_allowed():
             return None
         j = self.inner.judge(spec, thread)  # type: ignore[union-attr]
@@ -468,6 +522,7 @@ def default_judge(live: bool = False) -> Judge:
 __all__ = [
     "PROMPT_VERSION", "ItemJudgment", "Judgment", "Judge", "ClaudeJudge", "CachedJudge", "FakeJudge",
     "default_judge", "cache_key", "build_tool", "answer_enum", "parse_tool_input", "render_transcript",
+    "turn_id",
 ]
 
 
@@ -495,6 +550,8 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"{t.thread_id}: no judgment (no valid key and no cache entry)")
             continue
         print(f"{t.thread_id} [{j.source}, {j.model}, {j.prompt_version}]")
+        for n in j.notes:
+            print(f"  note: {n}")
         for iid, ij in j.items.items():
             val = f" value={ij.value!r}" if ij.value else ""
             print(f"  {iid:13} {ij.answer:22} conf={ij.confidence:.2f} turn={ij.evidence_turn} "
