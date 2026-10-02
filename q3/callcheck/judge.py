@@ -11,9 +11,10 @@ Why a model at all
     routing code consumes.
 
 Prompt design decisions
-    1. Caller statements only. The agent's own words are never evidence. The thing
-       we are evaluating is the agent, so letting the judge read the agent's
-       assumptions ("it sounds like there's nothing you need to do") would let a
+    1. Facts from caller words only. Agent lines are read only to know which
+       question a caller line answers (a bare "no" means nothing without it). The
+       thing we are evaluating is the agent, so treating the agent's assumptions
+       ("it sounds like there's nothing you need to do") as evidence would let a
        wrong agent grade itself as right.
     2. Every item, every thread, independent of the path the agent took. The judge
        labels all 8 items even if the agent never asked them. Routing code then
@@ -29,18 +30,33 @@ Prompt design decisions
        verdict can say NEEDS_REVIEW instead of guessing. A scenario that itself
        covers uncertainty (q2 "inactive" means "not active, or unsure") wins over
        "unclear", because the script already decided where unsure callers go.
-    5. One utterance, one item, unless the words address both. A plain "yes" to
-       the opening offer answers q1 only; it is not read as a phone preference for
-       q5_choice. This stops the model from double counting generic agreement.
+    5. One utterance, one item, unless the words address both. The opener already
+       says "over the phone", so agreeing to it answers q1 only; it is not a
+       q5_choice answer because the in person option was never offered. A caller
+       who ties "over the phone" to completing the packet they have (threads 07
+       C3, 10 C0) did state a q5_choice preference, volunteered, at moderate
+       confidence. A worked example in the prompt shows both cases.
+    5b. Corrections: the corrected answer wins and first_available_turn points at
+       the correction, so a superseded answer never makes a later question look
+       like a re-ask.
     6. Calibrated confidence bands are spelled out (0.9+ only for explicit,
        unambiguous statements) so the verdict can threshold on them.
     7. Placeholder scenarios (ids like "__close__") get a rendered meaning ("caller
        named the plan") instead of the engine's internal note, and the captured
        plan goes into `value`, normalized to one of the scripted options.
     8. Structure: system prompt holds the rules; the user turn holds the items
-       (question text, scenario id, meaning) and the transcript as numbered
-       `[turn] ROLE: text` lines. In the tool schema `evidence` comes before
+       (question text, scenario id, meaning) and the transcript as
+       `[C3] CALLER: text` / `[A3] AGENT: text` lines (`[A-open]` for the opener,
+       continuation lines indented). Distinct C and A ids make an agent turn
+       impossible to cite as caller evidence: the schema's turn fields are an enum
+       of this thread's caller ids. In the tool schema `evidence` comes before
        `answer`, so the model commits to a verbatim quote before picking a label.
+    9. first_available_quote is a verbatim quote from the first available turn, so
+       the re-ask finding can show what the caller said at that turn (the evidence
+       quote may come from a later turn).
+   10. The cache key hashes the system prompt, the tool schema and the rendered
+       user message, so any prompt edit misses the cache even if PROMPT_VERSION
+       (kept as a label) was not bumped.
 
 API notes (logged in docs/decisions-log.md)
     claude-sonnet-5-5 rejects forced tool_choice ("any"/"tool") and non default
@@ -52,7 +68,9 @@ API notes (logged in docs/decisions-log.md)
 Validation
     The tool input is validated in code: unknown item ids are dropped, missing
     items or answers outside the enum become "unclear" with confidence 0 and a
-    note, turns that are not caller turns become None, confidence is clamped.
+    note, turn ids that are not caller turns of the thread become None with a
+    note, a first_available_quote not found in its turn is blanked with a note,
+    confidence is clamped. Notes land on Judgment.notes and in the cache.
     Nothing here raises on malformed model output.
 """
 
@@ -69,7 +87,7 @@ from typing import Any, Literal, Protocol
 
 from callcheck.model import FlowSpec, Item, Scenario, Thread
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 DEFAULT_MODEL = "claude-sonnet-5-5"
 TOOL_NAME = "record_judgments"
 UNCLEAR = "unclear"
@@ -113,38 +131,74 @@ class Judge(Protocol):
 
 SYSTEM_PROMPT = """\
 You label what a CALLER said on a phone call between a Medi-Cal renewal assistant (AGENT) and a member (CALLER). \
-Your labels feed a deterministic evaluator that checks whether the agent routed the call correctly, so it needs to know \
-what the caller actually communicated, independent of what the agent did or assumed.
+Your labels feed a deterministic evaluator that checks whether the agent routed the call correctly, so it needs to \
+know what the caller actually communicated, independent of what the agent did or assumed.
 
 For every item you are given, decide which scenario the caller's own words match, quote the caller, and find the \
 earliest caller turn where that information appeared.
 
+Transcript format: every line starts with a turn id. [A-open] is the agent's opening question. [C<t>] is CALLER \
+turn t and [A<t>] is AGENT turn t. Caller turn C<t> is spoken before agent turn A<t>, so the order is A-open, C0, \
+A0, C1, A1, C2, and so on: the AGENT line right before C<t> is A<t-1> (or A-open before C0). An indented line \
+continues the turn above it. Turn fields in your answer take caller turn ids only, like "C3", never an A id.
+
 Rules:
-1. Judge CALLER lines only. The agent's questions, assumptions, summaries and closing lines are never evidence. If the \
-agent says "it sounds like your coverage is active" and the caller never said so, the caller did not say so.
+1. Use AGENT lines only to know which question a CALLER line answers. Facts come only from CALLER words. An agent \
+summary or assumption is never evidence: if the agent says "it sounds like your coverage is active" and the caller \
+never said so, the caller did not say so.
 2. Label every item, including items the agent never asked about. Callers often volunteer information before it is \
 asked (for example mentioning a move out of the county in their first reply). Do not depend on the order of the \
-agent's questions or on whether they were asked at all. Map the caller's words to the scenario meanings literally.
-3. One statement answers an item only if its words address that item. A plain yes to the opening offer is the answer \
-to the intent item only; it is not evidence for a later item unless the caller adds specific content about it.
-4. first_available_turn: the earliest CALLER turn that already contained the information, even if it came before the \
-agent asked. evidence_turn: the CALLER turn of the quote you give (usually the clearest statement). Use the bracketed \
-turn numbers of CALLER lines only.
-5. evidence: a short verbatim quote copied from a CALLER line, no paraphrase.
-6. not_discussed: the caller never gave this information. Use evidence "", both turns null, value null.
-7. unclear: the caller addressed the item but their words cannot be mapped to exactly one scenario (they hedge, \
+agent's questions or on whether they were asked at all. Map by meaning. Implied answers are allowed, with \
+confidence per rule 10.
+3. A short reply such as "yes", "no" or "sure" answers only the question in the AGENT line right before it. Any \
+other item is answered only by caller words whose content addresses that item.
+4. Corrections: if the caller corrects an earlier answer, the final answer is the corrected one. evidence quotes \
+the correction, and first_available_turn is the turn where the caller first stated the corrected answer; the \
+superseded answer does not count as available.
+5. q5_choice (phone or in person) and the opener. The opening question already says "over the phone", so agreeing \
+to it at C0, even in words like "yes, over the phone is fine", answers q1_intent only and is not a q5_choice \
+answer: the in person option had not been offered. q5_choice is answered only when the caller (a) answers the \
+q5_choice question, or (b) states how they want to complete the yellow packet they have, for example asking to \
+finish or fill out the packet over the phone now, or asking for an in person appointment to go through it. Case (b) \
+counts in any turn, before the agent offers the choice and even in the same sentence as other answers, as long as \
+the caller ties phone or in person to completing the packet. Label case (b) as a volunteered preference (by_phone \
+or in_person) with confidence 0.7 to 0.85, first_available_turn being the first turn that ties the two.
+6. first_available_turn: the earliest CALLER turn that already contained the information, even if it came before \
+the agent asked. first_available_quote: a short verbatim quote from that same CALLER turn showing the information. \
+evidence_turn: the CALLER turn of the evidence quote (usually the clearest statement, which may be later).
+7. evidence: a short verbatim quote copied from a CALLER line, no paraphrase.
+8. not_discussed: the caller never gave this information. Use evidence "" and first_available_quote "", both turns \
+null, value null.
+9. unclear: the caller addressed the item but their words cannot be mapped to exactly one scenario (they hedge, \
 contradict themselves without settling, or give an answer no scenario covers). Quote the conflicting words in \
 evidence, cite the latest relevant turn, keep confidence at or below 0.6. If a scenario's meaning explicitly covers \
-uncertainty (for example "not active, or unsure"), a hedged answer maps to that scenario, not to unclear. If the \
-caller clearly corrects an earlier answer, use the corrected one.
-8. confidence: 0.9 or above only for an explicit, unambiguous statement; 0.7 to 0.89 when the meaning is clear but \
+uncertainty (for example "not active, or unsure"), a hedged answer maps to that scenario, not to unclear.
+10. confidence: 0.9 or above only for an explicit, unambiguous statement; 0.7 to 0.89 when the meaning is clear but \
 indirect or implied; 0.4 to 0.69 for weak or partial evidence; below 0.4 when guessing. For not_discussed it is how \
 sure you are the caller never gave the information.
-9. value: null unless the item says it captures a value. The plan item captures the plan name exactly as one of its \
-listed options, or "Other: <name>" if the caller named a plan not in the list. The decline item captures the caller's \
-stated reason, close to their words.
-10. The decline item asks why the caller does not want help. Label it only from a reason the caller gives for \
+11. value: null unless the item says it captures a value. The plan item captures the plan name exactly as one of \
+its listed options, or "Other: <name>" if the caller named a plan not in the list. The decline item captures the \
+caller's stated reason, close to their words.
+12. The decline item asks why the caller does not want help. Label it only from a reason the caller gives for \
 declining or for not needing help after declining; if the caller never declined, it is not_discussed.
+
+Worked example (shortened, not from your transcript):
+[A-open] AGENT: First, would you like our help renewing your Medi-Cal right now, over the phone?
+[C0] CALLER: Sure, over the phone works.
+[A0] AGENT: Do you currently have active Medi-Cal coverage?
+[C1] CALLER: Yes, I think so.
+[A1] AGENT: Do you currently have any other health insurance?
+[C2] CALLER: No. Oh wait, I found the letter, my Medi-Cal ended last month. I have the yellow packet here, can we \
+fill it out over the phone?
+Labels:
+q1_intent: yes, evidence "Sure, over the phone works.", evidence_turn C0, first_available_turn C0, confidence 0.95.
+q2_active: inactive, evidence "my Medi-Cal ended last month", evidence_turn C2, first_available_turn C2 (the \
+correction; the C1 answer is superseded), confidence 0.9.
+q3_coverage: false, evidence "No.", evidence_turn C2, first_available_turn C2, confidence 0.9 (short reply to A1).
+q5_packet: still_has, evidence "I have the yellow packet here", turn C2, confidence 0.8 (implied: has it, not \
+submitted).
+q5_choice: by_phone, evidence "can we fill it out over the phone?", evidence_turn C2, first_available_turn C2, \
+confidence 0.8, volunteered before the choice was offered. C0 is not a q5_choice answer.
 
 Call the record_judgments tool exactly once with every item. Do not answer in prose."""
 
