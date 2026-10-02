@@ -383,22 +383,26 @@ class FakeJudge:
         return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "fake")
 
 
-def _canonical_spec_items(spec: FlowSpec) -> str:
-    data = [
-        {
-            "id": item.id,
-            "question": item.question.text,
-            "options": item.question.options,
-            "scenarios": [[s.id, s.means] for s in item.question.scenarios],
-        }
-        for item in spec.items.values()
-    ]
-    return json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def cache_key(model: str, spec: FlowSpec, thread: Thread) -> str:
-    payload = "\n\x1e".join([model, PROMPT_VERSION, render_transcript(thread), _canonical_spec_items(spec)])
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    """Hash of everything the model sees: system prompt, tool schema, rendered user message.
+
+    PROMPT_VERSION stays in the key as a human readable label, but the key no longer
+    depends on someone remembering to bump it: any edit to the rules, the schema, the
+    item rendering or the transcript format changes the hash.
+    """
+    tool_json = json.dumps(build_tool(spec), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    parts = [
+        model,
+        PROMPT_VERSION,
+        _sha(SYSTEM_PROMPT),
+        _sha(tool_json),
+        _sha(build_user_message(spec, thread)),
+    ]
+    return _sha("\n\x1e".join(parts))
 
 
 class CachedJudge:

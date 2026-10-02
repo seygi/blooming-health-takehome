@@ -101,6 +101,35 @@ def test_cache_key_sensitive_to_prompt_version_and_model(spec, threads, monkeypa
     assert cache_key("m", spec, t) != before
 
 
+def test_cache_key_sensitive_to_system_prompt_text(spec, threads, monkeypatch):
+    # Editing the rules without bumping PROMPT_VERSION must still miss the cache.
+    t = _thread(threads, "thread_03")
+    before = cache_key("m", spec, t)
+    monkeypatch.setattr(J, "SYSTEM_PROMPT", J.SYSTEM_PROMPT + "\nExtra rule.")
+    assert cache_key("m", spec, t) != before
+
+
+def test_cache_key_sensitive_to_tool_schema(spec, threads, monkeypatch):
+    t = _thread(threads, "thread_03")
+    before = cache_key("m", spec, t)
+    orig = J.build_tool
+
+    def changed(*a, **k):
+        tool = orig(*a, **k)
+        return {**tool, "description": tool["description"] + " changed"}
+
+    monkeypatch.setattr(J, "build_tool", changed)
+    assert cache_key("m", spec, t) != before
+
+
+def test_cache_key_sensitive_to_user_message_template(spec, threads, monkeypatch):
+    t = _thread(threads, "thread_03")
+    before = cache_key("m", spec, t)
+    orig = J.build_user_message
+    monkeypatch.setattr(J, "build_user_message", lambda s, th: orig(s, th) + "\nchanged")
+    assert cache_key("m", spec, t) != before
+
+
 def test_cache_key_differs_between_threads(spec, threads):
     keys = {cache_key("m", spec, t) for t in threads}
     assert len(keys) == len(threads)
