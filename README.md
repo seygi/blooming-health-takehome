@@ -7,7 +7,7 @@ Seygi Kutani, Senior AI Engineer (Conversational AI, Voice) take-home for Bloomi
 | Question | Where | Thesis in one line |
 |---|---|---|
 | Q1 Capacity under a burst | [q1/ANSWER.md](q1/ANSWER.md) | Choppy audio is a missed 20 ms frame deadline, not a throughput limit: pre-warm from the forecast, admit calls on measured frame latency, and let the dialer be the throttle. |
-| Q2 Keeping a 40 minute agent on course | [q2/ANSWER.md](q2/ANSWER.md) | Move the form out of the model: a deterministic controller owns the ledger and cursor, re-renders a small instruction block via `session.update`, and the first thing to break is capture fidelity at the tool boundary. |
+| Q2 Keeping a 40 minute agent on course | [q2/ANSWER.md](q2/ANSWER.md) | Move the form out of the model: a deterministic controller owns the ledger and cursor, re-renders a small instruction block via `session.update`, and the first thing to break is capture fidelity at the tool boundary. Includes a speech to speech vs cascaded tradeoff from agents I've shipped. |
 | Q3 Evaluation harness | [q3/](q3/) ([q3/README.md](q3/README.md)) | `callcheck` decides per call whether the agent did its job (task outcome) and whether it is fit to ship (release), deterministic first, a model only for reading free caller speech. |
 
 ## Q3 quick start
@@ -111,6 +111,7 @@ Where the tools were wrong and got corrected:
 - The judge cache key ignored the prompt text, so a prompt edit could silently reuse stale judgments. The key now hashes the system prompt, tool schema and rendered user message.
 - The judge prompt had a turn numbering ambiguity. Caller and agent lines now have distinct ids (`C3`, `A3`), and the schema only accepts caller ids as evidence.
 - `claude-sonnet-5-5` rejects forced `tool_choice` and non default temperature with a 400. The judge uses a strict tool schema with one retry, and determinism comes from the committed cache, not from temperature.
+- Q1 and Q2 were first drafted from general knowledge, then rewritten around measurements from production voice agents I've shipped (generalized, rounded). In review I removed two sentences a writer agent had embellished beyond what was measured, and corrected one figure (unfulfilled agent commitments are counted per action, not per call).
 - A piped test command once hid failures (the pipe's exit code masked pytest's), and a red commit got through. That commit was rebuilt green.
 
 ## Disclosure
