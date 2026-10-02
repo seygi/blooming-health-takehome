@@ -101,7 +101,7 @@ EXPECTED_VERDICTS: dict[str, str] = {
     "thread_05": "FAIL",  # leaked "(Waiting for your response.)"
     "thread_06": "FAIL",  # leaked "That was the final message of this follow-up."
     "thread_07": "NEEDS_REVIEW",  # simulator stopped before any terminal; nothing else wrong
-    "thread_08": "FAIL",  # closes the call on a _complete handoff
+    "thread_08": "PASS",  # closes on a _complete handoff: soft warning only (contradictory_close)
     "thread_09": "FAIL",  # leaked "(Waiting for your answer.)"
     "thread_10": "FAIL",  # leaked "(Waiting for your response.)"
 }

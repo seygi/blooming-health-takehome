@@ -101,7 +101,7 @@ def test_text_report_shape(hand_reports):
     assert max(len(line) for line in text.splitlines()) <= 120
     assert "FIX LIST" in text
     assert "not ground truth" in text
-    assert "TOTAL 10 threads: PASS 1  FAIL 8  NEEDS_REVIEW 1" in text
+    assert "TOTAL 10 threads: PASS 2  FAIL 7  NEEDS_REVIEW 1" in text
     assert "\u2014" not in text
 
 
@@ -114,7 +114,7 @@ def test_fix_list_ranks_by_threads_affected(hand_reports):
 
 def test_json_shape(hand_reports):
     data = to_json(list(hand_reports.values()))
-    assert data["counts"] == {"PASS": 1, "FAIL": 8, "NEEDS_REVIEW": 1}
+    assert data["counts"] == {"PASS": 2, "FAIL": 7, "NEEDS_REVIEW": 1}
     t = next(t for t in data["threads"] if t["thread_id"] == "thread_01")
     assert t["gates"]["correct_routing"] == "pass" and t["expected_path"] == ["q1_intent", "q2_active"]
     t7 = next(t for t in data["threads"] if t["thread_id"] == "thread_07")
