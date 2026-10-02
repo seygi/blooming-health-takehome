@@ -23,3 +23,4 @@
 - contradictory_close (goodbye on _complete) is soft major: _complete semantics are an assumption and the eval ran the agent standalone.
 - Unmatched closing text is NEEDS_REVIEW (terminal_unrecognized), never a confident no_terminal FAIL.
 - Hand labels (author's own reading) live in callcheck/hand_labels.py for tests, the --labels hand demo, and --agreement against the model judge.
+- Default run is live and requires ANTHROPIC_API_KEY (missing or rejected key exits 3 with guidance); --cached replays the committed judgments, which were produced locally through the author's Claude subscription via CALLCHECK_BACKEND=claude-cli. --live kept as a no-op alias.
