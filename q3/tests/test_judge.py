@@ -203,7 +203,99 @@ def test_cached_judge_refresh_forces_inner(spec, threads, tmp_path):
     assert j.source == "fake" and j.items["q1_intent"].confidence == 0.5
 
 
+def test_captures_value_derived_from_spec(spec):
+    assert {iid for iid, it in spec.items.items() if J.captures_value(it)} == {"q3_plan", "decline"}
+
+
+def test_q3_plan_value_normalized_to_option(spec, threads):
+    raw = {"items": {"q3_plan": {"evidence": "covered by Kaiser Permanente", "answer": "__close__",
+                                 "confidence": 0.95, "evidence_turn": 2, "first_available_turn": 0,
+                                 "value": "kaiser permanente"},
+                     "q2_active": {**_good_item(), "value": "should be dropped"}}}
+    items = parse_tool_input(spec, _thread(threads, "thread_09"), raw)
+    assert items["q3_plan"].value == "Kaiser Permanente"
+    assert items["q3_plan"].first_available_turn == 0
+    assert items["q2_active"].value is None
+
+
 def test_default_judge_without_key_is_offline(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     j = J.default_judge()
     assert isinstance(j, CachedJudge) and j.inner is None
+
+
+# ---- ClaudeJudge request shape, with a mocked client (no network) ----------
+
+
+class _Block:
+    def __init__(self, type, name=None, input=None):
+        self.type, self.name, self.input = type, name, input
+
+
+class _Resp:
+    def __init__(self, content, stop_reason):
+        self.content, self.stop_reason, self.stop_details = content, stop_reason, None
+
+
+class _Messages:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        r = self.responses.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+class _Client:
+    def __init__(self, responses):
+        self.messages = _Messages(responses)
+
+
+def _tool_input(spec):
+    items = {iid: {"evidence": "", "answer": NOT_DISCUSSED, "confidence": 0.9, "evidence_turn": None,
+                   "first_available_turn": None, "value": None} for iid in spec.items}
+    items["q1_intent"] = {"evidence": "Yes, please.", "answer": "yes", "confidence": 0.97, "evidence_turn": 0,
+                          "first_available_turn": 0, "value": None}
+    return {"items": items}
+
+
+def test_claude_judge_request_shape(spec, threads):
+    client = _Client([_Resp([_Block("tool_use", J.TOOL_NAME, _tool_input(spec))], "tool_use")])
+    j = J.ClaudeJudge("claude-sonnet-5-5", client=client).judge(spec, _thread(threads, "thread_01"))
+    assert j.source == "live" and j.items["q1_intent"].answer == "yes"
+    call = client.messages.calls[0]
+    assert call["model"] == "claude-sonnet-5-5"
+    assert call["tool_choice"]["type"] == "auto"  # forced tool_choice is a 400 on this model
+    assert "temperature" not in call  # non default temperature is a 400 on this model
+    assert call["tools"][0]["strict"] is True
+    assert "[0] CALLER: Yes, please." in call["messages"][0]["content"]
+
+
+def test_claude_judge_retries_once_without_tool_call(spec, threads):
+    client = _Client([_Resp([_Block("text")], "end_turn"),
+                      _Resp([_Block("tool_use", J.TOOL_NAME, _tool_input(spec))], "tool_use")])
+    j = J.ClaudeJudge("m", client=client).judge(spec, _thread(threads, "thread_01"))
+    assert j is not None and len(client.messages.calls) == 2
+
+
+def test_claude_judge_refusal_returns_none(spec, threads):
+    client = _Client([_Resp([], "refusal")])
+    assert J.ClaudeJudge("m", client=client).judge(spec, _thread(threads, "thread_01")) is None
+
+
+def test_claude_judge_bad_key_returns_none_and_disables(spec, threads, tmp_path):
+    import anthropic
+
+    httpx = pytest.importorskip("httpx2")
+    req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    err = anthropic.AuthenticationError("bad key", response=httpx.Response(401, request=req), body=None)
+    judge = J.ClaudeJudge("m", client=_Client([err]))
+    assert judge.judge(spec, _thread(threads, "thread_01")) is None
+    assert judge.available is False
+    path = tmp_path / "judgments.json"
+    assert CachedJudge(judge, model="m", path=path).judge(spec, _thread(threads, "thread_02")) is None
+    assert not path.exists()

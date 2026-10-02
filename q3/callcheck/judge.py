@@ -74,7 +74,6 @@ TOOL_NAME = "record_judgments"
 UNCLEAR = "unclear"
 NOT_DISCUSSED = "not_discussed"
 CACHE_PATH = Path(__file__).resolve().parents[1] / "cache" / "judgments.json"
-VALUE_ITEMS = {"q3_plan", "decline"}  # items whose free value is captured
 
 Source = Literal["cache", "live", "fake"]
 
@@ -155,6 +154,12 @@ def _scenario_meaning(item: Item, s: Scenario) -> str:
     return s.means
 
 
+def captures_value(item: Item) -> bool:
+    """Free text questions (decline reason) and placeholder branches (q3_plan) exist to capture a value."""
+    q = item.question
+    return q.type == "text" or any(_is_placeholder(s) for s in q.scenarios)
+
+
 def answer_enum(item: Item) -> list[str]:
     return [s.id for s in item.question.scenarios] + [UNCLEAR, NOT_DISCUSSED]
 
@@ -164,9 +169,9 @@ def render_items(spec: FlowSpec) -> str:
     for item in spec.items.values():
         q = item.question
         lines = [f"ITEM {item.id} ({item.label})", f'  Question: "{q.text}"']
-        if q.options and item.id in VALUE_ITEMS:
+        if q.options and captures_value(item):
             lines.append(f"  Options: {', '.join(q.options)}")
-        if item.id in VALUE_ITEMS:
+        if captures_value(item):
             lines.append("  Captures a value: yes")
         lines.append("  Scenarios:")
         for s in q.scenarios:
@@ -271,7 +276,7 @@ def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int]) -> ItemJu
         first = ev_turn
     elif ev_turn is not None:
         first = min(first, ev_turn)
-    if item.id not in VALUE_ITEMS:
+    if not captures_value(item):
         value = None
     elif value and item.question.options:
         value = _normalize_plan(value, item.question.options)
@@ -303,9 +308,12 @@ class ClaudeJudge:
         self.model = model or os.environ.get("CALLCHECK_MODEL", DEFAULT_MODEL)
         self._client = client
         self.max_attempts = max_attempts
+        self._disabled = False
 
     @property
     def available(self) -> bool:
+        if self._disabled:
+            return False
         return self._client is not None or bool(os.environ.get("ANTHROPIC_API_KEY"))
 
     def _get_client(self) -> Any:
@@ -321,15 +329,31 @@ class ClaudeJudge:
         client = self._get_client()
         tool = build_tool(spec)
         messages = [{"role": "user", "content": build_user_message(spec, thread)}]
+        import anthropic
+
         for attempt in range(1, self.max_attempts + 1):
-            resp = client.messages.create(
-                model=self.model,
-                max_tokens=16000,
-                system=SYSTEM_PROMPT,
-                tools=[tool],
-                tool_choice={"type": "auto", "disable_parallel_tool_use": True},
-                messages=messages,
-            )
+            try:
+                resp = client.messages.create(
+                    model=self.model,
+                    max_tokens=16000,
+                    system=SYSTEM_PROMPT,
+                    tools=[tool],
+                    tool_choice={"type": "auto", "disable_parallel_tool_use": True},
+                    messages=messages,
+                )
+            except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
+                # Bad credentials will fail for every thread: stop trying, report unavailable.
+                self._disabled = True
+                _warn(f"live judge disabled, credentials rejected ({type(e).__name__})")
+                return None
+            except anthropic.NotFoundError:
+                self._disabled = True
+                _warn(f"live judge disabled, model {self.model!r} not found; set CALLCHECK_MODEL")
+                return None
+            except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+                # The SDK already retried 429/5xx/connection errors; give up on this thread only.
+                _warn(f"{thread.thread_id}: API error {type(e).__name__}: {str(e)[:200]}")
+                return None
             if resp.stop_reason == "refusal":
                 _warn(f"{thread.thread_id}: model refused ({getattr(resp, 'stop_details', None)})")
                 return None
@@ -442,3 +466,37 @@ __all__ = [
     "default_judge", "cache_key", "build_tool", "answer_enum", "parse_tool_input", "render_transcript",
 ]
 
+
+
+def _main(argv: list[str] | None = None) -> int:
+    """Populate or refresh the cache: `uv run python -m callcheck.judge [--refresh] [thread_id ...]`."""
+    import argparse
+
+    from callcheck.load import load
+
+    ap = argparse.ArgumentParser(prog="python -m callcheck.judge")
+    ap.add_argument("ids", nargs="*", help="thread ids (default: all)")
+    ap.add_argument("--data", default=str(Path(__file__).resolve().parents[1] / "data" / "gym_agent_conversations.json"))
+    ap.add_argument("--refresh", action="store_true", help="ignore cache, call the model")
+    args = ap.parse_args(argv)
+    spec, threads = load(args.data)
+    judge = default_judge(live=args.refresh)
+    missing = 0
+    for t in threads:
+        if args.ids and t.thread_id not in args.ids:
+            continue
+        j = judge.judge(spec, t)
+        if j is None:
+            missing += 1
+            print(f"{t.thread_id}: no judgment (no valid key and no cache entry)")
+            continue
+        print(f"{t.thread_id} [{j.source}, {j.model}, {j.prompt_version}]")
+        for iid, ij in j.items.items():
+            val = f" value={ij.value!r}" if ij.value else ""
+            print(f"  {iid:13} {ij.answer:22} conf={ij.confidence:.2f} turn={ij.evidence_turn} "
+                  f"first={ij.first_available_turn}{val}  {ij.evidence[:90]!r}")
+    return 1 if missing else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
