@@ -103,6 +103,9 @@ class Finding:
     problem: str
     fix_hint: str
     owner: Owner
+    # True when the harness cannot confirm the problem (simulator cut the episode, judge missing or
+    # unsure). An uncertain finding never yields FAIL on its own; it yields NEEDS_REVIEW.
+    uncertain: bool = False
 
 
 @dataclass
@@ -114,3 +117,6 @@ class ThreadReport:
     expected_terminal: str | None = None
     actual_terminal: str | None = None
     simulator_goal_marker: bool = False
+    gates: dict[str, str] = field(default_factory=dict)  # gate -> "pass" | "fail" | "uncertain"
+    expected_path: list[str] = field(default_factory=list)
+    judge_source: str = "none"  # "cache" | "live" | "fake" | "none"

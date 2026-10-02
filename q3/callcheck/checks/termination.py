@@ -61,6 +61,7 @@ def _no_terminal(thread: Thread) -> Finding:
                 "episode to run until the agent emits an outcome or handoff."
             ),
             owner="simulator",
+            uncertain=True,
         )
     return Finding(
         check="termination.no_terminal",

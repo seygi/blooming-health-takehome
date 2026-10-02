@@ -26,6 +26,12 @@ def test_truncated_by_simulator(spec, threads, thread_id):
     f = findings[0]
     assert f.severity == "major" and f.gate == "proper_termination" and f.owner == "simulator"
     assert "episode incomplete, success cannot be confirmed" in f.problem
+    assert f.uncertain is True
+
+
+def test_other_termination_findings_are_confident(spec, threads):
+    findings = run(spec, by_id(threads, "thread_02"))
+    assert findings and all(f.uncertain is False for f in findings)
 
 
 def test_no_terminal_without_marker(spec):

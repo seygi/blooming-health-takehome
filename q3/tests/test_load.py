@@ -1,3 +1,6 @@
+import json
+
+from callcheck.load import load_min_confidence
 from callcheck.model import FlowSpec, Thread
 
 
@@ -50,3 +53,17 @@ def test_unmarked_message_text_unchanged(threads):
     m = threads[0].messages[1]
     assert m.text == m.raw_text
     assert m.had_marker is False
+
+
+def test_min_confidence_from_team_config():
+    from conftest import DATA
+
+    assert load_min_confidence(DATA) == 0.7
+
+
+def test_min_confidence_fallback(tmp_path):
+    p = tmp_path / "d.json"
+    p.write_text(json.dumps({"team_config": {"configuration": {}}}))
+    assert load_min_confidence(p, default=0.65) == 0.65
+    p.write_text(json.dumps({}))
+    assert load_min_confidence(p, default=0.65) == 0.65
