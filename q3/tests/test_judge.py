@@ -263,6 +263,96 @@ def test_parse_bare_int_turn_rejected_with_note(spec, threads):
     assert notes
 
 
+# ---- first_available_quote ----------------------------------------------------
+
+
+def test_tool_schema_has_first_available_quote(spec, threads):
+    q2 = build_tool(spec, _thread(threads, "thread_07"))["input_schema"]["properties"]["items"]["properties"]["q2_active"]
+    assert q2["properties"]["first_available_quote"]["type"] == "string"
+    assert "first_available_quote" in q2["required"]
+
+
+def test_item_judgment_quote_defaults_blank():
+    ij = ItemJudgment("q2_active", "active", 0.9, "x", 1, 1, None)
+    assert ij.first_available_quote == ""
+
+
+def _q5_choice(evidence, ev_turn, first, quote):
+    return {"q5_choice": {"evidence": evidence, "answer": "by_phone", "confidence": 0.8, "evidence_turn": ev_turn,
+                          "first_available_turn": first, "first_available_quote": quote, "value": None}}
+
+
+def test_first_available_quote_kept_when_in_that_turn(spec, threads):
+    # thread_07: the caller asks to finish the packet over the phone at C3, before q5_choice is offered at A4.
+    t = _thread(threads, "thread_07")
+    raw = {"items": _q5_choice("Can we just go ahead and finish it over the phone now?", "C4", "C3",
+                               "can we just finish that yellow packet over the phone right now?")}
+    notes: list[str] = []
+    j = parse_tool_input(spec, t, raw, notes)["q5_choice"]
+    assert j.first_available_turn == 3 and j.evidence_turn == 4
+    assert j.first_available_quote == "can we just finish that yellow packet over the phone right now?"
+    assert not any("q5_choice" in n for n in notes)
+
+
+def test_first_available_quote_from_other_turn_blanked_with_note(spec, threads):
+    t = _thread(threads, "thread_07")
+    raw = {"items": _q5_choice("Can we just go ahead and finish it over the phone now?", "C4", "C3",
+                               "Can we just go ahead and finish it over the phone now?")}  # this is C4 text
+    notes: list[str] = []
+    j = parse_tool_input(spec, t, raw, notes)["q5_choice"]
+    assert j.first_available_quote == ""
+    assert any("q5_choice.first_available_quote" in n for n in notes)
+
+
+def test_first_available_quote_falls_back_to_evidence_of_same_turn(spec, threads):
+    # first moves to the evidence turn (C3 < C4), so the evidence quote is a quote of the first turn.
+    t = _thread(threads, "thread_07")
+    raw = {"items": _q5_choice("can we just finish that yellow packet over the phone right now?", "C3", "C4", "")}
+    j = parse_tool_input(spec, t, raw)["q5_choice"]
+    assert j.first_available_turn == 3
+    assert j.first_available_quote == "can we just finish that yellow packet over the phone right now?"
+
+
+def test_first_available_quote_never_borrows_evidence_from_other_turn(spec, threads):
+    t = _thread(threads, "thread_07")
+    raw = {"items": _q5_choice("Can we just go ahead and finish it over the phone now?", "C4", "C3", "")}
+    j = parse_tool_input(spec, t, raw)["q5_choice"]
+    assert j.first_available_turn == 3 and j.first_available_quote == ""
+
+
+def test_first_available_quote_tolerates_straight_apostrophe(spec, threads):
+    # thread_01 C1 uses a curly apostrophe: "Oh, that’s weird."
+    t = _thread(threads, "thread_01")
+    raw = {"items": {"q2_active": {**_good_item(), "first_available_quote": "that's weird. I definitely have"}}}
+    j = parse_tool_input(spec, t, raw)["q2_active"]
+    assert j.first_available_quote == "that's weird. I definitely have"
+
+
+def test_first_available_quote_blank_for_not_discussed(spec, threads):
+    t = _thread(threads, "thread_01")
+    raw = {"items": {"q4_residency": {"evidence": "", "answer": NOT_DISCUSSED, "confidence": 0.9,
+                                      "evidence_turn": None, "first_available_turn": None,
+                                      "first_available_quote": "Yes, please.", "value": None}}}
+    assert parse_tool_input(spec, t, raw)["q4_residency"].first_available_quote == ""
+
+
+def test_cache_round_trip_keeps_quote_and_reads_old_entries(spec, threads, tmp_path):
+    t = _thread(threads, "thread_07")
+    path = tmp_path / "judgments.json"
+    preset = {"q5_choice": ItemJudgment("q5_choice", "by_phone", 0.8, "finish it over the phone now", 4, 3,
+                                        None, "finish that yellow packet over the phone")}
+    CachedJudge(FakeJudge({"thread_07": preset}), model="m", path=path).judge(spec, t)
+    j = CachedJudge(_Boom(), model="m", path=path).judge(spec, t)
+    assert j.items["q5_choice"].first_available_quote == "finish that yellow packet over the phone"
+    data = json.loads(path.read_text())
+    for entry in data["entries"].values():
+        for ij in entry["items"].values():
+            ij.pop("first_available_quote")
+    path.write_text(json.dumps(data))
+    old = CachedJudge(_Boom(), model="m", path=path).judge(spec, t)
+    assert old.items["q5_choice"].first_available_quote == ""
+
+
 # ---- judges -------------------------------------------------------------------
 
 

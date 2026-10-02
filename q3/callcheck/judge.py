@@ -88,6 +88,9 @@ class ItemJudgment:
     evidence_turn: int | None
     first_available_turn: int | None  # earliest caller turn where this information was given
     value: str | None  # q3_plan plan name, decline reason text
+    # verbatim quote from the caller turn first_available_turn ("" when unknown); last and
+    # defaulted so positional constructors and older cache entries keep working
+    first_available_quote: str = ""
 
 
 @dataclass(frozen=True)
@@ -246,9 +249,14 @@ def build_tool(spec: FlowSpec, thread: Thread) -> dict:
                 "confidence": {"type": "number", "description": "0 to 1, calibrated."},
                 "evidence_turn": _turn_schema(thread, "Caller turn id of the evidence quote, like C3."),
                 "first_available_turn": _turn_schema(thread, "Earliest caller turn id holding this information."),
+                "first_available_quote": {
+                    "type": "string",
+                    "description": "Verbatim quote from the first_available_turn CALLER line, or empty if not_discussed.",
+                },
                 "value": _nullable("string"),
             },
-            "required": ["evidence", "answer", "confidence", "evidence_turn", "first_available_turn", "value"],
+            "required": ["evidence", "answer", "confidence", "evidence_turn", "first_available_turn",
+                         "first_available_quote", "value"],
             "additionalProperties": False,
         }
     return {
@@ -296,6 +304,35 @@ def _turn(v: Any, caller_turns: set[int], where: str, notes: list[str]) -> int |
     return t
 
 
+_QUOTE_FOLD = str.maketrans({"\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"', "\u2014": "-"})
+
+
+def _fold(text: str) -> str:
+    """Case, whitespace and typographic quote insensitive form, for substring checks only."""
+    return " ".join(text.translate(_QUOTE_FOLD).lower().split())
+
+
+def _quote_in(quote: str, turn_text: str) -> bool:
+    q = _fold(quote).strip(" .,!?\"'")
+    return bool(q) and q in _fold(turn_text)
+
+
+def _first_quote(raw_quote: Any, evidence: str, ev_turn: int | None, first: int | None,
+                 texts: dict[int, str], where: str, notes: list[str]) -> str:
+    """The model's quote if it is in caller turn `first`; else the evidence quote if that is the same
+    turn; else "". Never a quote from a different turn."""
+    if first is None:
+        return ""
+    quote = raw_quote.strip() if isinstance(raw_quote, str) else ""
+    if quote and _quote_in(quote, texts[first]):
+        return quote
+    if quote:
+        notes.append(f"{where} {quote[:60]!r} is not in caller turn C{first}, blanked")
+    if ev_turn == first and evidence and _quote_in(evidence, texts[first]):
+        return evidence
+    return ""
+
+
 def _normalize_plan(value: str, options: list[str]) -> str:
     for opt in options:
         if value.strip().lower() == opt.lower():
@@ -303,7 +340,7 @@ def _normalize_plan(value: str, options: list[str]) -> str:
     return value.strip()
 
 
-def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int], notes: list[str]) -> ItemJudgment:
+def _one(spec: FlowSpec, item: Item, raw: Any, texts: dict[int, str], notes: list[str]) -> ItemJudgment:
     if not isinstance(raw, dict):
         return _unclear(item.id, "item missing from model output")
     answer = raw.get("answer")
@@ -313,6 +350,7 @@ def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int], notes: li
     confidence = float(conf) if isinstance(conf, (int, float)) and not isinstance(conf, bool) else 0.0
     confidence = min(1.0, max(0.0, confidence))
     evidence = raw.get("evidence") if isinstance(raw.get("evidence"), str) else ""
+    caller_turns = set(texts)
     ev_turn = _turn(raw.get("evidence_turn"), caller_turns, f"{item.id}.evidence_turn", notes)
     first = _turn(raw.get("first_available_turn"), caller_turns, f"{item.id}.first_available_turn", notes)
     value = raw.get("value") if isinstance(raw.get("value"), str) and raw.get("value").strip() else None
@@ -326,7 +364,9 @@ def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int], notes: li
         value = None
     elif value and item.question.options:
         value = _normalize_plan(value, item.question.options)
-    return ItemJudgment(item.id, answer, confidence, evidence, ev_turn, first, value)
+    quote = _first_quote(raw.get("first_available_quote"), evidence, ev_turn, first, texts,
+                         f"{item.id}.first_available_quote", notes)
+    return ItemJudgment(item.id, answer, confidence, evidence, ev_turn, first, value, quote)
 
 
 def parse_tool_input(
@@ -334,11 +374,11 @@ def parse_tool_input(
 ) -> dict[str, ItemJudgment]:
     """Validate the model's tool input. Never raises. Harness notes are appended to `notes`."""
     sink: list[str] = [] if notes is None else notes
-    caller_turns = {m.turn for m in thread.caller_messages()}
+    texts = {m.turn: m.text for m in thread.caller_messages()}
     items_raw = raw.get("items") if isinstance(raw, dict) else None
     if not isinstance(items_raw, dict):
         items_raw = {}
-    return {iid: _one(spec, item, items_raw.get(iid), caller_turns, sink) for iid, item in spec.items.items()}
+    return {iid: _one(spec, item, items_raw.get(iid), texts, sink) for iid, item in spec.items.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +596,8 @@ def _main(argv: list[str] | None = None) -> int:
             val = f" value={ij.value!r}" if ij.value else ""
             print(f"  {iid:13} {ij.answer:22} conf={ij.confidence:.2f} turn={ij.evidence_turn} "
                   f"first={ij.first_available_turn}{val}  {ij.evidence[:90]!r}")
+            if ij.first_available_quote and ij.first_available_turn != ij.evidence_turn:
+                print(f"  {'':13} first quote: {ij.first_available_quote[:90]!r}")
     return 1 if missing else 0
 
 
