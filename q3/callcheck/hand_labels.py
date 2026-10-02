@@ -1,0 +1,191 @@
+"""Hand labels: the author's own reading of each transcript. NOT model output.
+
+Written by reading every thread in q3/data/gym_agent_conversations.json, following the judge's own rules
+(caller lines only, every item labelled, first_available_turn is the earliest caller turn that already
+held the information, a plain yes to q1 answers q1 only). Items left out are not_discussed (the judge
+below fills them with confidence 1.0).
+
+Two uses:
+  * tests: routing, verdict and report run end to end with no network and no judgment cache;
+  * measurement: `callcheck --agreement` compares the model judge's cached answers with these labels, and
+    `callcheck --labels hand` runs the whole harness on them so routing can be shown without an API key.
+The report header always says when these labels are the judge source ("hand").
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass, field
+
+from callcheck.judge import NOT_DISCUSSED, FakeJudge, ItemJudgment, Judge, Judgment
+from callcheck.model import FlowSpec, Thread
+from callcheck.routing import capture_only
+from callcheck.spec import walk
+
+HAND_SOURCE = "hand"
+
+
+def L(item: str, answer: str, conf: float, evidence: str, turn: int, first: int | None = None,
+      value: str | None = None) -> ItemJudgment:
+    return ItemJudgment(item, answer, conf, evidence, turn, turn if first is None else first, value)
+
+
+def _labels(*items: ItemJudgment) -> dict[str, ItemJudgment]:
+    return {i.item_id: i for i in items}
+
+
+HAND_LABELS: dict[str, dict[str, ItemJudgment]] = {
+    "thread_01": _labels(
+        L("q1_intent", "yes", 0.95, "Yes, please.", 0),
+        L("q2_active", "active", 0.95, "I definitely have active coverage right now", 1),
+    ),
+    "thread_02": _labels(
+        L("q1_intent", "yes", 0.95, "Yes, please, I definitely need help with that.", 0),
+        # "I don't think" is a hedge, but q2 `inactive` explicitly covers "unsure".
+        L("q2_active", "inactive", 0.9, "No, I don't think it's active right now", 1),
+        L("q3_coverage", "false", 0.95, "No, I don't have any other insurance at all.", 2),
+        L("q4_residency", "true", 0.95, "Yeah, I still live here in San Diego.", 3),
+        L("q5_packet", "no_or_lost", 0.95, "No, I never actually got it in the mail, so I don't have it.", 4,
+          first=3),
+    ),
+    "thread_03": _labels(
+        L("q1_intent", "yes", 0.95, "Yeah, I'd definitely like some help with that.", 0),
+        L("q2_active", "inactive", 0.95, "No, it's definitely not active", 1, first=0),
+        L("q3_coverage", "false", 0.95, "No, I don't have any other insurance at all.", 2, first=0),
+        L("q4_residency", "false", 0.95, "I actually moved out of the county", 3, first=1),
+    ),
+    "thread_04": _labels(
+        L("q1_intent", "yes", 0.95, "Yes, please", 0),
+        L("q2_active", "active", 0.95, "Yes, I'm 100% sure it's active", 2, first=1),
+    ),
+    "thread_05": _labels(
+        L("q1_intent", "yes", 0.95, "Yeah, I'd definitely like some help with that.", 0),
+        L("q2_active", "inactive", 0.95, "No, it's not active right now.", 1),
+        L("q3_coverage", "false", 0.95, "No, I don't have any other insurance at all.", 2, first=1),
+        L("q4_residency", "true", 0.95, "Yeah, I still live here in San Diego.", 3),
+        L("q5_packet", "still_has", 0.95, "Yeah, I got it, and I still have it", 4),
+        L("q5_choice", "in_person", 0.95, "I'd definitely prefer to come in for an in-person appointment", 5),
+    ),
+    "thread_06": _labels(
+        L("q1_intent", "not_interested", 0.95, "I'm not interested in renewing over the phone right now.", 0),
+        L("q4_residency", "false", 0.9, "I actually moved out of San Diego County recently", 1),
+        L("decline", "reveals_out_of_county", 0.95, "I actually moved out of San Diego County recently", 1,
+          value="moved out of San Diego County recently"),
+    ),
+    "thread_07": _labels(
+        L("q1_intent", "yes", 0.95, "Yes, I'd really appreciate your help with that.", 0),
+        L("q2_active", "inactive", 0.95, "No, it's not active right now.", 1),
+        L("q3_coverage", "false", 0.95, "No, I don't have any other insurance.", 2, first=1),
+        L("q4_residency", "true", 0.95, "I'm still in San Diego County.", 3, first=2),
+        L("q5_packet", "still_has", 0.95, "Yeah, I still have it right here in front of me.", 4, first=2),
+        # Volunteered before q5_choice was ever asked; explicit about phone, so 0.85 not 0.95.
+        L("q5_choice", "by_phone", 0.85, "Can we just go ahead and finish it over the phone now?", 4, first=3),
+    ),
+    "thread_08": _labels(
+        L("q1_intent", "yes", 0.95, "Yes, I definitely want help with that.", 0),
+        L("q2_active", "inactive", 0.95, "No, it's not active right now.", 1),
+        L("q3_coverage", "false", 0.95, "No, I don't have any other insurance at all.", 2, first=1),
+        L("q4_residency", "true", 0.95, "Yeah, I still live here in San Diego.", 3, first=0),
+        L("q5_packet", "no_or_lost", 0.95, "No, like I said, I never got it in the mail.", 4, first=0),
+    ),
+    "thread_09": _labels(
+        L("q1_intent", "yes", 0.95, "Yeah, I'd really like some help with that.", 0),
+        L("q2_active", "inactive", 0.95, "No, it's definitely not active", 1, first=0),
+        L("q3_coverage", "true", 0.95, "I'm covered by Kaiser Permanente.", 2, first=0),
+        L("q3_plan", "__close__", 0.95, "I'm covered by Kaiser Permanente.", 2, first=0, value="Kaiser Permanente"),
+    ),
+    "thread_10": _labels(
+        L("q1_intent", "yes", 0.95, "Yes, I'd definitely like your help with that.", 0),
+        L("q2_active", "inactive", 0.9, "I'm not currently active", 0),
+        L("q3_coverage", "false", 0.95, "I don't have any other insurance", 0),
+        L("q4_residency", "true", 0.95, "I'm still in San Diego County.", 0),
+        L("q5_packet", "still_has", 0.9, "I have the yellow packet right here", 0),
+        L("q5_choice", "by_phone", 0.85, "let's do this over the phone now.", 0),
+    ),
+}
+
+
+class HandJudge:
+    """Judge protocol over HAND_LABELS. Judgments carry source "hand" so reports cannot mistake them
+    for model output."""
+
+    model = "hand-labels"
+
+    def __init__(self, labels: dict[str, dict[str, ItemJudgment]] | None = None):
+        self._inner = FakeJudge(HAND_LABELS if labels is None else labels, model=self.model)
+
+    def judge(self, spec: FlowSpec, thread: Thread) -> Judgment | None:
+        j = self._inner.judge(spec, thread)
+        return None if j is None else dataclasses.replace(j, source=HAND_SOURCE)  # type: ignore[arg-type]
+
+
+def hand_judge() -> HandJudge:
+    return HandJudge()
+
+
+# ---------------------------------------------------------------------------
+# Agreement: model judge vs hand labels
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ThreadAgreement:
+    thread_id: str
+    judged: bool  # False when the judge had no answer for this thread (no cache entry, no live call)
+    total: int = 0
+    matched: int = 0
+    path_total: int = 0  # items on the expected path under the hand labels
+    path_matched: int = 0
+    terminal_hand: str | None = None
+    terminal_judge: str | None = None
+    disagreements: list[str] = field(default_factory=list)  # "item: judge X, hand Y"
+
+
+def _answer(j: dict[str, ItemJudgment], item_id: str) -> str:
+    ij = j.get(item_id)
+    return ij.answer if ij is not None else NOT_DISCUSSED
+
+
+def _expected(spec: FlowSpec, items: dict[str, ItemJudgment]) -> tuple[list[str], str | None]:
+    answers: dict[str, str] = {}
+    for item_id, item in spec.items.items():
+        answer = _answer(items, item_id)
+        if capture_only(item):
+            answers[item_id] = item.question.scenarios[0].id
+        elif answer != NOT_DISCUSSED:
+            answers[item_id] = answer
+    path = walk(spec, answers)
+    return [p for p in path.items if p in spec.items], path.terminal
+
+
+def agreement(
+    spec: FlowSpec, threads: list[Thread], judge: Judge, labels: dict[str, dict[str, ItemJudgment]] | None = None
+) -> list[ThreadAgreement]:
+    """Per thread: exact answer match on every item, and on the items of the hand labelled expected path."""
+    labels = HAND_LABELS if labels is None else labels
+    hand = HandJudge(labels)
+    out: list[ThreadAgreement] = []
+    for thread in threads:
+        h = hand.judge(spec, thread)
+        if h is None:
+            continue
+        j = judge.judge(spec, thread)
+        if j is None:
+            out.append(ThreadAgreement(thread.thread_id, judged=False))
+            continue
+        path, terminal_hand = _expected(spec, h.items)
+        _jpath, terminal_judge = _expected(spec, j.items)
+        a = ThreadAgreement(thread.thread_id, judged=True, terminal_hand=terminal_hand,
+                            terminal_judge=terminal_judge)
+        for item_id in spec.items:
+            ja, ha = _answer(j.items, item_id), _answer(h.items, item_id)
+            same = ja == ha
+            a.total += 1
+            a.matched += same
+            if item_id in path:
+                a.path_total += 1
+                a.path_matched += same
+            if not same:
+                a.disagreements.append(f"{item_id}: judge {ja}, hand {ha}")
+        out.append(a)
+    return out

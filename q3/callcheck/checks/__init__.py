@@ -20,9 +20,10 @@ class Context:
 REGISTRY: list[Callable[[Context], list[Finding]]] = []
 
 # Registered at the bottom: check modules import Context from this package.
-from callcheck.checks import hygiene, repetition, script, termination  # noqa: E402
+from callcheck.checks import hygiene, repetition, say_coverage, script, termination  # noqa: E402
 
 REGISTRY.append(hygiene.check)
 REGISTRY.append(repetition.check)
 REGISTRY.append(termination.check)
 REGISTRY.append(script.check)
+REGISTRY.append(say_coverage.check)

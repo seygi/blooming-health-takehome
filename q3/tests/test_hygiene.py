@@ -74,3 +74,40 @@ def test_marker_and_markdown_synthetic(spec):
 def test_inline_parenthetical_is_not_a_stage_direction(spec):
     thread = synthetic("Family Health Centers (FHCSD) can help.")
     assert run(spec, thread) == []
+
+
+@pytest.mark.parametrize(
+    "text,quote",
+    [
+        ("Do you still live in San Diego County? (Waiting for your answer.)", "(Waiting for your answer.)"),
+        ("Which would you prefer? (go ahead and tell me)", "(go ahead and tell me)"),
+        ("Which would you prefer? (I'll pause here for your response)", "(I'll pause here for your response)"),
+        ("Do you still live in San Diego County? *waits for response*", "*waits for response*"),
+        ("Let me check that for you. [pause] Okay.", "[pause]"),
+    ],
+)
+def test_more_stage_direction_shapes(spec, text, quote):
+    findings = run(spec, synthetic(text))
+    assert [f.check for f in findings] == ["hygiene.stage_direction"]
+    assert quote in findings[0].evidence
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Family Health Centers of San Diego (FHCSD) will follow up.",
+        "Do you have other insurance (through work, school, or Kaiser)?",
+        "Please let me know.",
+    ],
+)
+def test_ordinary_parentheticals_and_requests_stay_silent(spec, text):
+    assert run(spec, synthetic(text)) == []
+
+
+def test_system_text_is_distinct_from_stage_direction(spec):
+    thread = synthetic("Take care. This was the final message of this follow-up. (Waiting for your response.)")
+    assert sorted(f.check for f in run(spec, thread)) == ["hygiene.stage_direction", "hygiene.system_text"]
+
+
+def test_simulator_marker_still_uppercase_only(spec):
+    assert [f.check for f in run(spec, synthetic("Okay [END_CALL]"))] == ["hygiene.simulator_marker"]

@@ -235,6 +235,17 @@ def _align_turn(
     )
 
 
+def node_sentences(text: str) -> list[str]:
+    """A scripted say split into its sentences, as the matcher sees them."""
+    return [s.strip() for s in _NODE_SENTENCE_SPLIT.split(text.strip()) if tokens(s)]
+
+
+def contains(sentence: str, text: str) -> bool:
+    """True when `sentence` appears in `text` under the same matching rule as script nodes."""
+    score, _pos = _best_match(tokens(sentence), tokens(text))
+    return score >= MATCH_THRESHOLD
+
+
 def align(spec: FlowSpec, thread: Thread) -> Alignment:
     nodes = _nodes(spec)
     turns: list[AgentTurnAlignment] = []
