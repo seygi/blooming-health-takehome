@@ -89,7 +89,7 @@ In the cascaded agents I've shipped, guards run on the text before it is spoken:
 
 The controller makes skipping and re-asking structurally hard. What breaks first is the model's interface into the controller: **capture fidelity at the tool boundary**. The model says "got it" and never calls `record_answer`, records a volunteered answer under the wrong field, or a correction never becomes `update_answer`. The conversation sounds perfect while the ledger is wrong, and wrong values go into a real benefits application.
 
-This is not hypothetical. When I added a commitment guard in production, about 1 in 8 of roughly 50 live calls had the agent promise an action it never performed. Claiming an action that never happened is the base rate, and it worsens with call length.
+This is not hypothetical. When I added a commitment guard in production, it caught about half a dozen promised actions that were never performed across roughly 50 live calls. On short calls. I would expect the rate to grow with call length, and I would measure that first.
 
 Detection:
 
