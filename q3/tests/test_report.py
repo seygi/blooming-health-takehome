@@ -170,38 +170,36 @@ def test_exit_codes_follow_release():
 
 @pytest.fixture
 def no_cache(monkeypatch, tmp_path):
-    """CLI with no API key and an empty cache: the judge is unavailable for every thread."""
+    """CLI replaying an empty cache: the judge is unavailable for every thread."""
     from callcheck.judge import CachedJudge
 
-    monkeypatch.setattr(
-        cli, "default_judge", lambda live=False: CachedJudge(None, model="m", path=tmp_path / "missing.json")
-    )
+    monkeypatch.setattr(cli, "cached_judge", lambda: CachedJudge(None, model="m", path=tmp_path / "missing.json"))
 
 
 def test_cli_fail_exit_code(no_cache, capsys):
-    assert cli.main(["--thread", "thread_02"]) == 1
+    assert cli.main(["--cached", "--thread", "thread_02"]) == 1
     out = capsys.readouterr().out
     assert "thread_02" in out and "FAIL" in out
 
 
 def test_cli_needs_review_exit_code(no_cache, capsys):
-    assert cli.main(["--thread", "thread_01"]) == 2
+    assert cli.main(["--cached", "--thread", "thread_01"]) == 2
     assert "NEEDS_REVIEW" in capsys.readouterr().out
 
 
 def test_cli_pass_exit_code(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "default_judge", lambda live=False: hand_judge())
-    assert cli.main(["--thread", "thread_01"]) == 0
+    monkeypatch.setattr(cli, "cached_judge", hand_judge)
+    assert cli.main(["--cached", "--thread", "thread_01"]) == 0
     assert "PASS" in capsys.readouterr().out
 
 
 def test_cli_unknown_thread(no_cache, capsys):
-    assert cli.main(["--thread", "nope"]) == 3
+    assert cli.main(["--cached", "--thread", "nope"]) == 3
 
 
 def test_cli_json_written(no_cache, tmp_path, capsys):
     out = tmp_path / "report.json"
-    code = cli.main(["--json", "--out", str(out)])
+    code = cli.main(["--cached", "--json", "--out", str(out)])
     assert code == 1
     printed = capsys.readouterr().out.strip()
     assert printed.endswith("report.json")
@@ -211,10 +209,10 @@ def test_cli_json_written(no_cache, tmp_path, capsys):
 
 
 def test_cli_captured_file(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "default_judge", lambda live=False: hand_judge())
+    monkeypatch.setattr(cli, "cached_judge", hand_judge)
     cap = tmp_path / "captured.json"
     cap.write_text(json.dumps({"thread_01": {"q2_active": "Not active or unsure"}}))
-    assert cli.main(["--thread", "thread_01", "--captured", str(cap)]) == 1
+    assert cli.main(["--cached", "--thread", "thread_01", "--captured", str(cap)]) == 1
     out = capsys.readouterr().out
     assert "routing.captured_mismatch" in out
     assert "agent recorded Not active or unsure, caller said active at turn 1" in out
@@ -227,15 +225,15 @@ def test_cli_bad_captured_file(tmp_path):
 
 
 def test_cli_speech_policy_default_voice(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "default_judge", lambda live=False: hand_judge())
-    assert cli.main(["--thread", "thread_05"]) == 1  # voice: the leak blocks release
+    monkeypatch.setattr(cli, "cached_judge", hand_judge)
+    assert cli.main(["--cached", "--thread", "thread_05"]) == 1  # voice: the leak blocks release
     out = capsys.readouterr().out
     assert "speech policy: gate (default for agent_config.transport_mode = voice)" in out
 
 
 def test_cli_speech_policy_soft(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "default_judge", lambda live=False: hand_judge())
-    assert cli.main(["--thread", "thread_05", "--speech-policy", "soft"]) == 0
+    monkeypatch.setattr(cli, "cached_judge", hand_judge)
+    assert cli.main(["--cached", "--thread", "thread_05", "--speech-policy", "soft"]) == 0
     assert "speech policy: soft (set by --speech-policy)" in capsys.readouterr().out
 
 

@@ -195,5 +195,5 @@ def test_report_header_names_model_transport_and_prompt(spec, threads, tmp_path)
                 model="claude-sonnet-5-5", path=path).judge(spec, t)
     r = evaluate(spec, t, CachedJudge(None, model="claude-sonnet-5-5", path=path))
     out = render_text([r])
-    assert (f"judge source: cache (claude-sonnet-5-5 via claude-cli, prompt {J.PROMPT_VERSION})"
+    assert (f"judge source: cache (replay of committed run: claude-sonnet-5-5 via claude-cli, prompt {J.PROMPT_VERSION})"
             in out.splitlines()[0])

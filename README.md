@@ -16,18 +16,20 @@ Needs Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```
 uv sync
-uv run callcheck                          # model judge from the committed cache q3/cache/judgments.json, no key needed
-uv run callcheck --labels hand            # the author's own hand labels instead of the model (no key, no cache)
-uv run callcheck --live                   # refresh judgments from the API: needs ANTHROPIC_API_KEY
-CALLCHECK_BACKEND=claude-cli uv run callcheck --live   # same refresh through the Claude Code CLI login
+export ANTHROPIC_API_KEY=...              # the default run calls the model for every thread
+uv run callcheck                          # live judge via the Anthropic API, refreshes q3/cache/judgments.json
+uv run callcheck --cached                 # replay the committed results, no key and no network
+uv run callcheck --labels hand            # the author's own hand labels instead of the model (offline)
 uv run callcheck --json                   # write q3/out/report.json (or --out FILE), print only the path
 uv run callcheck --thread thread_06       # one thread
-uv run callcheck --agreement              # model judge vs hand labels, per item and per thread
+uv run callcheck --agreement              # model judge vs hand labels (live, or add --cached)
 uv run callcheck --speech-policy soft     # speech leaks become release warnings instead of blockers
-uv run pytest -q                          # 300 passed, no network
+uv run pytest -q                          # 313 passed, no network and no key
 ```
 
-Model: `claude-sonnet-5-5` by default, override with `CALLCHECK_MODEL`. The key is read from `ANTHROPIC_API_KEY` only and never written anywhere. `CALLCHECK_BACKEND=claude-cli` sends the same prompt and schema through the Claude Code CLI (`claude -p`) instead; the cache key does not depend on the backend. With no cache entry and no working backend, the harness does not crash: it prints a warning and every affected thread becomes NEEDS_REVIEW.
+During development I ran the judge through my Claude subscription using the Claude Code CLI (`CALLCHECK_BACKEND=claude-cli`); the committed q3/cache/judgments.json is that run, replayable with `--cached`.
+
+Model: `claude-sonnet-5-5` by default, override with `CALLCHECK_MODEL`. The key is read from `ANTHROPIC_API_KEY` only and never written anywhere. `CALLCHECK_BACKEND=claude-cli` sends the same prompt and schema through the Claude Code CLI (`claude -p`) with no API key; the cache key does not depend on the backend. If the key is missing or rejected, `callcheck` prints how to fix it (set the key, `--cached`, `--labels hand` or `claude-cli`) and exits 3 without running any check. A failure on a single thread (a refusal, a timeout) makes only that thread NEEDS_REVIEW. With `--cached`, a thread that has no cache entry is NEEDS_REVIEW too. `--live` is still accepted as a no-op, because live is now the default.
 
 Exit codes follow the release verdict: `0` all PASS, `1` any FAIL, `2` NEEDS_REVIEW and no FAIL, `3` usage or input error.
 
@@ -42,11 +44,11 @@ Exit codes follow the release verdict: `0` all PASS, `1` any FAIL, `2` NEEDS_REV
 
 ## Sample output
 
-The run below uses the model judge from the committed cache, so it needs no key.
+The run below is the committed run, replayed with `--cached` (model judge results from q3/cache/judgments.json).
 
 ```
-$ uv run callcheck
-callcheck: 10 thread(s), judge source: cache (claude-sonnet-5-5 via claude-cli, prompt v2)
+$ uv run callcheck --cached
+callcheck: 10 thread(s), judge source: cache (replay of committed run: claude-sonnet-5-5 via claude-cli, prompt v2)
 speech policy: gate (default for agent_config.transport_mode = voice)
 
 Task outcome: PASS 6, FAIL 1, NEEDS_REVIEW 3. Release: PASS 2, FAIL 7, NEEDS_REVIEW 1. Top blocker:
@@ -70,9 +72,9 @@ cells: pass, FAIL (confident), review (harness not confident), n/a (no terminal 
 PASS* = release PASS with warnings. sim marker = simulator [GOAL_ACHIEVED], not ground truth
 ```
 
-Judgments in q3/cache/judgments.json were generated with claude-sonnet-5-5 through the Claude Code CLI (`CALLCHECK_BACKEND=claude-cli`); `--live` with `ANTHROPIC_API_KEY` uses the API directly with the same prompt and schema.
+Judgments in q3/cache/judgments.json were generated with claude-sonnet-5-5 through the Claude Code CLI (`CALLCHECK_BACKEND=claude-cli`); the default run with `ANTHROPIC_API_KEY` uses the API directly with the same prompt and schema.
 
-Agreement with the author's hand labels (`uv run callcheck --agreement`): 80/80 item answers (100%), 42/42 on the expected path, 10/10 expected terminals, and `first_available_turn` matches on all 80 items. These are one person's labels on 10 short calls, so this shows the judge reads them the same way, not that it is calibrated. `--labels hand` gives the same verdicts and gate cells as above.
+Agreement with the author's hand labels (`uv run callcheck --cached --agreement`): 80/80 item answers (100%), 42/42 on the expected path, 10/10 expected terminals, and `first_available_turn` matches on all 80 items. These are one person's labels on 10 short calls, so this shows the judge reads them the same way, not that it is calibrated. `--labels hand` gives the same verdicts and gate cells as above.
 
 The full output continues with a ranked fix list, per thread detail and the simulator comparison (see [q3/README.md](q3/README.md#output-anatomy)).
 

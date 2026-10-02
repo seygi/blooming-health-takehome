@@ -65,6 +65,10 @@ API notes (logged in docs/decisions-log.md)
     and checks that a tool_use block came back (one retry otherwise). Determinism
     comes from the committed cache, not from temperature.
 
+Modes (see cli.py)
+    Default `callcheck` is live: every thread is judged by the model and the result is written to the
+    cache. `--cached` replays the cache only. A rejected key raises JudgeAuthError and stops the run.
+
 Transports (CALLCHECK_BACKEND)
     "api" (default) calls the Messages API with ANTHROPIC_API_KEY. "claude-cli" runs the Claude Code
     CLI headless (`claude -p`) on the user's subscription, with the same system prompt, the same user
@@ -133,6 +137,11 @@ class Judgment:
     # how the model was reached ("api" or "claude-cli"); None for fakes and for cache entries older than
     # the field. Metadata only: never part of the cache key.
     transport: Transport | None = None
+
+
+class JudgeAuthError(Exception):
+    """The API rejected the credentials (401 or 403). Every thread would fail the same way, so this
+    stops the run instead of degrading each thread to NEEDS_REVIEW."""
 
 
 class Judge(Protocol):
@@ -499,10 +508,9 @@ class ClaudeJudge:
                     messages=messages,
                 )
             except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
-                # Bad credentials will fail for every thread: stop trying, report unavailable.
+                # Bad credentials will fail for every thread: stop the whole run, do not degrade silently.
                 self._disabled = True
-                _warn(f"live judge disabled, credentials rejected ({type(e).__name__})")
-                return None
+                raise JudgeAuthError(f"credentials rejected ({type(e).__name__})") from e
             except anthropic.NotFoundError:
                 self._disabled = True
                 _warn(f"live judge disabled, model {self.model!r} not found; set CALLCHECK_MODEL")
@@ -726,6 +734,22 @@ def backend() -> str:
     return name
 
 
+def cached_judge() -> Judge:
+    """Replay only: reads q3/cache/judgments.json, never calls a model, needs no key."""
+    return CachedJudge(None, model=os.environ.get("CALLCHECK_MODEL", DEFAULT_MODEL))
+
+
+def live_unavailable_reason() -> str | None:
+    """Why a live judge cannot run right now (None when it can). Checked before any thread is evaluated."""
+    if backend() == "claude-cli":
+        if shutil.which("claude") is None:
+            return "CALLCHECK_BACKEND=claude-cli is set but the claude binary is not on PATH."
+        return None
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return "ANTHROPIC_API_KEY is not set."
+    return None
+
+
 def default_judge(live: bool = False) -> Judge:
     """Cache first. Live calls happen on a cache miss when a backend is usable, or always when live=True.
 
@@ -746,7 +770,7 @@ def default_judge(live: bool = False) -> Judge:
 
 __all__ = [
     "PROMPT_VERSION", "ItemJudgment", "Judgment", "Judge", "ClaudeJudge", "ClaudeCliJudge", "CachedJudge",
-    "FakeJudge", "backend",
+    "FakeJudge", "backend", "JudgeAuthError", "cached_judge", "live_unavailable_reason",
     "default_judge", "cache_key", "build_tool", "answer_enum", "parse_tool_input", "render_transcript",
     "turn_id",
 ]
@@ -770,7 +794,11 @@ def _main(argv: list[str] | None = None) -> int:
     for t in threads:
         if args.ids and t.thread_id not in args.ids:
             continue
-        j = judge.judge(spec, t)
+        try:
+            j = judge.judge(spec, t)
+        except JudgeAuthError as e:
+            print(f"callcheck judge: {e}", file=sys.stderr)
+            return 3
         if j is None:
             missing += 1
             print(f"{t.thread_id}: no judgment (no usable backend and no cache entry)")

@@ -44,8 +44,9 @@ Guardrails on the model part:
 - It labels all 8 items on every thread, independent of the path the agent took, so a skipped branch deciding question is still caught.
 - Strict tool schema; turn fields are an enum of this thread's caller ids (`C<n>`), so an agent turn cannot be cited as caller evidence. Output is validated in code (unknown items dropped, bad turns nulled, quotes checked against their turn, confidence clamped).
 - Results are cached in `q3/cache/judgments.json`, keyed by sha256 of model, prompt version, system prompt, tool schema and rendered user message. Any prompt edit misses the cache. `claude-sonnet-5-5` rejects forced `tool_choice` and non default temperature, so determinism comes from the cache. The committed entries were generated with `claude-sonnet-5-5` through the Claude Code CLI (`CALLCHECK_BACKEND=claude-cli`, same prompt and schema as the API path); the transport is stored per entry and shown in the report header, never in the key.
-- API errors (bad key, unknown model, network) return no judgment and the harness reports NEEDS_REVIEW; it never crashes.
-- `--labels hand` swaps in the author's own labels (`callcheck/hand_labels.py`), and `--agreement` reports how often the model matches them, per item and per thread.
+- The default run is live and needs `ANTHROPIC_API_KEY` (or `CALLCHECK_BACKEND=claude-cli`, which uses a local Claude Code subscription and no key). A missing or rejected key exits 3 with a message listing `--cached`, `--labels hand` and `claude-cli`; it never degrades every thread to NEEDS_REVIEW. Per thread failures (refusal, timeout, network) give NEEDS_REVIEW for that thread only, and it never crashes.
+- `--cached` replays the committed `q3/cache/judgments.json` with no key and no network. During development I ran the judge through my Claude subscription using the Claude Code CLI (`CALLCHECK_BACKEND=claude-cli`); the committed cache is that run. `--live` is kept as a no-op alias.
+- `--labels hand` swaps in the author's own labels (`callcheck/hand_labels.py`), and `--agreement` (live, or with `--cached`) reports how often the model matches them, per item and per thread.
 - Agreement on this data (prompt v2): 80/80 item answers (100%), 42/42 on the expected path, 10/10 expected terminals, and `first_available_turn` matches on all 80 items. One labeler, 10 short calls: consistent, not yet calibrated.
 
 ## Uncertainty handling
@@ -54,7 +55,7 @@ The harness never returns PASS when it is unsure. These produce NEEDS_REVIEW (an
 
 - A branch deciding answer is `unclear` or below the confidence threshold (`routing.low_confidence_answer`). The threshold is read from `team_config.configuration.rules_of_engagement.quality_gates.min_confidence_score` (0.7 in the data), with 0.7 as fallback.
 - A wrong terminal or path divergence when any branch deciding answer on the expected path is below the threshold: the finding is kept but marked uncertain.
-- No judgment for the thread: no cache entry and no working key (`routing.judge_unavailable`). `decisive_answers` then shows `review`, never `pass`.
+- No judgment for the thread: no cache entry under `--cached`, or a failed model call for that thread (`routing.judge_unavailable`). `decisive_answers` then shows `review`, never `pass`.
 - The agent closed with text that matches no outcome say (`termination.terminal_unrecognized`): the matcher may have missed a paraphrase, so a human confirms which outcome was meant.
 - The simulator emitted `[GOAL_ACHIEVED]` and the episode stopped before any terminal (`termination.truncated_by_simulator`, owner simulator).
 - Without a judgment, a question asked out of graph order (`script.out_of_order`), since the caller may have volunteered the skipped answer.
@@ -63,14 +64,14 @@ When no terminal is reached, `correct_routing` shows `n/a` rather than `pass`.
 
 ## Check catalog
 
-Example threads are from `uv run callcheck` (model judge from the committed cache); `--labels hand` fires exactly the same checks on the same threads. "none in this data" means the check exists and is tested but did not fire on these 10 threads; "none with these labels" means it depends on the judge labels and did not fire with either the model or the hand labels.
+Example threads are from `uv run callcheck --cached` (model judge from the committed cache); `--labels hand` fires exactly the same checks on the same threads. "none in this data" means the check exists and is tested but did not fire on these 10 threads; "none with these labels" means it depends on the judge labels and did not fire with either the model or the hand labels.
 
 | Check id | Gate | Severity | Owner | What it catches | Example |
 |---|---|---|---|---|---|
 | `routing.wrong_terminal` | correct_routing | critical | prompt | Agent delivered a different outcome than the graph gives for the caller's answers | none with these labels |
 | `routing.path_divergence` | correct_routing | major | engine or prompt | Skipped an item on the expected path, or asked an item off the expected path | none with these labels |
 | `routing.terminal_without_answer` | correct_routing | critical | engine | Disposition delivered although the decisive answer was never given | none with these labels |
-| `routing.judge_unavailable` | correct_routing | major, uncertain | harness | No judgment, so routing cannot be confirmed | every thread when there is no cache and no working key |
+| `routing.judge_unavailable` | correct_routing | major, uncertain | harness | No judgment, so routing cannot be confirmed | every thread when `--cached` runs with an empty cache |
 | `script.out_of_order` | correct_routing | major, uncertain | engine | Asked item is not a graph successor (only runs without a judgment) | none in this data |
 | `routing.low_confidence_answer` | decisive_answers | major, uncertain | harness | Branch deciding answer unclear or below threshold | none with these labels |
 | `routing.captured_mismatch` | decisive_answers | critical | prompt | Recorded value differs from what the caller said (needs `--captured`) | no captured record in the data |
