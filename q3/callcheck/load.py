@@ -37,3 +37,16 @@ def load(path: str | Path) -> tuple[FlowSpec, list[Thread]]:
     spec = build_spec(data["agent_config"]["engine_config"])
     threads = [_thread(t) for t in data["threads"]]
     return spec, threads
+
+
+def load_min_confidence(path: str | Path, default: float = 0.7) -> float:
+    """team_config.configuration.rules_of_engagement.quality_gates.min_confidence_score, else default."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    node: object = data
+    for key in ("team_config", "configuration", "rules_of_engagement", "quality_gates", "min_confidence_score"):
+        if not isinstance(node, dict) or key not in node:
+            return default
+        node = node[key]
+    if isinstance(node, bool) or not isinstance(node, (int, float)) or not 0 <= node <= 1:
+        return default
+    return float(node)
