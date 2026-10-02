@@ -5,3 +5,4 @@
 - Simulator `[GOAL_ACHIEVED]` marker treated as the simulator's opinion, not ground truth; shown as comparison column.
 - Python + uv because Blooming's stack is Python/Go.
 - engine_config has 8 items; scenario ids wrapped in double underscores (q3_plan __close__) are catch-alls; answers matching no scenario follow default_route.
+- Correction to own first draft: hygiene fix hint said 'strip in TTS text filter', but GPT Realtime is speech to speech, there is no text stage before audio. Fix belongs in the prompt/engine source plus eval gating.
