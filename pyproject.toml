@@ -1,0 +1,22 @@
+[project]
+name = "callcheck"
+version = "0.1.0"
+description = "Deterministic first evaluation harness for triage voice agent transcripts"
+requires-python = ">=3.12"
+dependencies = ["anthropic"]
+
+[project.scripts]
+callcheck = "callcheck.cli:main"
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["q3/callcheck"]
+
+[tool.pytest.ini_options]
+testpaths = ["q3/tests"]
