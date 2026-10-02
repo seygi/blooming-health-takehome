@@ -38,6 +38,8 @@ Why the line sits there: verdicts must be reproducible and auditable. If a regex
 
 Guardrails on the model part:
 
+- The judge comes from a different model family than the agent under test (agent: `gpt-realtime-mini`, judge: Claude). Same practice as the LLM judged benchmarks I built for production voice agents: keep the judge outside the family under test to avoid self preference bias.
+- The judge never decides the verdict. It only labels what the caller said; code turns that into PASS, FAIL or NEEDS_REVIEW. A judge score that can drift with a prompt tweak never overrides a deterministic failure.
 - The judge reads caller lines as evidence. Agent lines only tell it which question a caller line answers, so a wrong agent cannot grade itself right.
 - It labels all 8 items on every thread, independent of the path the agent took, so a skipped branch deciding question is still caught.
 - Strict tool schema; turn fields are an enum of this thread's caller ids (`C<n>`), so an agent turn cannot be cited as caller evidence. Output is validated in code (unknown items dropped, bad turns nulled, quotes checked against their turn, confidence clamped).
