@@ -1,4 +1,9 @@
-"""Script adherence: off script questions (soft) and question order against the graph (hard)."""
+"""Script adherence: off script questions (soft) and question order against the graph.
+
+Question order needs to know what the caller said: a skipped item is fine when the caller volunteered
+its answer. routing.compare_paths does that with the judge's labels, so with a judgment this module
+leaves order alone. Without one it still reports an order break, as uncertain (NEEDS_REVIEW).
+"""
 
 from __future__ import annotations
 
@@ -58,12 +63,16 @@ def _out_of_order(spec: FlowSpec, alignment: Alignment) -> list[Finding]:
                     gate="correct_routing",
                     turn=turn,
                     evidence=f"asked {item} after {prev or 'call start'}; graph allows {expected}",
-                    problem="Skipped or out of order question: the asked item is not a graph successor.",
+                    problem=(
+                        "Skipped or out of order question: the asked item is not a graph successor. No "
+                        "judgment is available to tell whether the caller volunteered the skipped answers."
+                    ),
                     fix_hint=(
                         "Engine: advance only along engine_config scenario gotos; check how the item "
                         "pointer moved past the expected question."
                     ),
                     owner="engine",
+                    uncertain=True,  # the caller may have volunteered the skipped answers
                 )
             )
         prev = item
@@ -72,4 +81,7 @@ def _out_of_order(spec: FlowSpec, alignment: Alignment) -> list[Finding]:
 
 def check(ctx: Context) -> list[Finding]:
     alignment = alignment_of(ctx)
-    return _off_script(alignment) + _out_of_order(ctx.spec, alignment)
+    findings = _off_script(alignment)
+    if ctx.judgment is None:
+        findings += _out_of_order(ctx.spec, alignment)
+    return findings
