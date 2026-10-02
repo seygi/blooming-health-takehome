@@ -41,9 +41,10 @@ Guardrails on the model part:
 - The judge reads caller lines as evidence. Agent lines only tell it which question a caller line answers, so a wrong agent cannot grade itself right.
 - It labels all 8 items on every thread, independent of the path the agent took, so a skipped branch deciding question is still caught.
 - Strict tool schema; turn fields are an enum of this thread's caller ids (`C<n>`), so an agent turn cannot be cited as caller evidence. Output is validated in code (unknown items dropped, bad turns nulled, quotes checked against their turn, confidence clamped).
-- Results are cached in `q3/cache/judgments.json`, keyed by sha256 of model, prompt version, system prompt, tool schema and rendered user message. Any prompt edit misses the cache. `claude-sonnet-5-5` rejects forced `tool_choice` and non default temperature, so determinism comes from the cache.
+- Results are cached in `q3/cache/judgments.json`, keyed by sha256 of model, prompt version, system prompt, tool schema and rendered user message. Any prompt edit misses the cache. `claude-sonnet-5-5` rejects forced `tool_choice` and non default temperature, so determinism comes from the cache. The committed entries were generated with `claude-sonnet-5-5` through the Claude Code CLI (`CALLCHECK_BACKEND=claude-cli`, same prompt and schema as the API path); the transport is stored per entry and shown in the report header, never in the key.
 - API errors (bad key, unknown model, network) return no judgment and the harness reports NEEDS_REVIEW; it never crashes.
 - `--labels hand` swaps in the author's own labels (`callcheck/hand_labels.py`), and `--agreement` reports how often the model matches them, per item and per thread.
+- Agreement on this data (prompt v2): 80/80 item answers (100%), 42/42 on the expected path, 10/10 expected terminals, and `first_available_turn` matches on all 80 items. One labeler, 10 short calls: consistent, not yet calibrated.
 
 ## Uncertainty handling
 
@@ -60,16 +61,16 @@ When no terminal is reached, `correct_routing` shows `n/a` rather than `pass`.
 
 ## Check catalog
 
-Example threads are from `uv run callcheck --labels hand`. "none in this data" means the check exists and is tested but did not fire on these 10 threads; "none with hand labels" means it depends on the judge labels and did not fire with the hand labels.
+Example threads are from `uv run callcheck` (model judge from the committed cache); `--labels hand` fires exactly the same checks on the same threads. "none in this data" means the check exists and is tested but did not fire on these 10 threads; "none with these labels" means it depends on the judge labels and did not fire with either the model or the hand labels.
 
 | Check id | Gate | Severity | Owner | What it catches | Example |
 |---|---|---|---|---|---|
-| `routing.wrong_terminal` | correct_routing | critical | prompt | Agent delivered a different outcome than the graph gives for the caller's answers | none with hand labels |
-| `routing.path_divergence` | correct_routing | major | engine or prompt | Skipped an item on the expected path, or asked an item off the expected path | none with hand labels |
-| `routing.terminal_without_answer` | correct_routing | critical | engine | Disposition delivered although the decisive answer was never given | none with hand labels |
+| `routing.wrong_terminal` | correct_routing | critical | prompt | Agent delivered a different outcome than the graph gives for the caller's answers | none with these labels |
+| `routing.path_divergence` | correct_routing | major | engine or prompt | Skipped an item on the expected path, or asked an item off the expected path | none with these labels |
+| `routing.terminal_without_answer` | correct_routing | critical | engine | Disposition delivered although the decisive answer was never given | none with these labels |
 | `routing.judge_unavailable` | correct_routing | major, uncertain | harness | No judgment, so routing cannot be confirmed | every thread when there is no cache and no working key |
 | `script.out_of_order` | correct_routing | major, uncertain | engine | Asked item is not a graph successor (only runs without a judgment) | none in this data |
-| `routing.low_confidence_answer` | decisive_answers | major, uncertain | harness | Branch deciding answer unclear or below threshold | none with hand labels |
+| `routing.low_confidence_answer` | decisive_answers | major, uncertain | harness | Branch deciding answer unclear or below threshold | none with these labels |
 | `routing.captured_mismatch` | decisive_answers | critical | prompt | Recorded value differs from what the caller said (needs `--captured`) | no captured record in the data |
 | `termination.talks_past_terminal` | proper_termination | critical | engine | New questions or content after the terminal; flags PII collection | thread_02 (asks for name, address, date of birth after `_complete`) |
 | `termination.no_terminal` | proper_termination | critical | engine | Call ended with no outcome say or handoff | none in this data |
@@ -84,7 +85,7 @@ Example threads are from `uv run callcheck --labels hand`. "none in this data" m
 | `repetition.asked_twice` | soft | minor | prompt | Same scripted question asked twice | none in this data |
 | `script.off_script_question` | soft | minor | prompt | Question that matches no scripted question | thread_04 |
 | `say_coverage.partial_say` | soft | minor | prompt | Scripted say delivered with sentences dropped | thread_01 (dropped "Take care.") |
-| `routing.plan_not_captured` | soft | minor | prompt | q3_plan value not obtained (capture only, route unaffected) | none with hand labels |
+| `routing.plan_not_captured` | soft | minor | prompt | q3_plan value not obtained (capture only, route unaffected) | none with these labels |
 
 Every finding has `check, severity, gate, turn, evidence, problem, fix_hint, owner, uncertain`, so it says what is wrong, where (turn and quote) and who fixes it.
 
@@ -94,7 +95,7 @@ Every finding has `check, severity, gate, turn, evidence, problem, fix_hint, own
 2. **Summary table**: per thread, both verdicts, expected vs actual terminal, the four gate cells (`pass`, `FAIL`, `review`, `n/a`) and the simulator marker.
 3. **Fix list**: the same check and fix grouped across threads. Hard gate fixes come first, then soft, each ranked by threads affected and severity, with one example quote. A soft re-ask seen in 7 threads does not bury a leak that fails 4.
 4. **Per thread detail**: expected path, actual terminal, the reasons behind each verdict, release warnings, and every finding with evidence, problem and fix.
-5. **Simulator comparison**: `[GOAL_ACHIEVED]` vs the harness task outcome (agree, disagree, not comparable). With hand labels: agree 4, disagree 3 (thread_04, thread_06, thread_08: marker no, harness PASS), not comparable 3.
+5. **Simulator comparison**: `[GOAL_ACHIEVED]` vs the harness task outcome (agree, disagree, not comparable). With the cached model judge (and with hand labels): agree 4, disagree 3 (thread_04, thread_06, thread_08: marker no, harness PASS), not comparable 3.
 
 `--json` writes the same content to `q3/out/report.json` with keys `speech_policy, counts, headline, simulator_agreement, fix_list, threads`.
 

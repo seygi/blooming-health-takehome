@@ -64,7 +64,16 @@ def evaluate(
         gates=gates,
         expected_path=result.expected_path,
         judge_source=judgment.source if judgment is not None else "none",
+        judge_detail=judge_detail(judgment),
     )
+
+
+def judge_detail(judgment) -> str:
+    """Model, transport and prompt version of a model judgment ("" for hand and fake labels)."""
+    if judgment is None or judgment.source not in ("cache", "live"):
+        return ""
+    via = f" via {judgment.transport}" if judgment.transport else ""
+    return f"{judgment.model}{via}, prompt {judgment.prompt_version}"
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +284,9 @@ _SOURCE_NOTE = {"hand": "hand (the author's own labels, NOT model output)"}
 
 
 def render_text(reports: list[ThreadReport], policy_note: str | None = None) -> str:
-    sources = sorted({r.judge_source for r in reports})
+    sources = sorted({(r.judge_source, r.judge_detail) for r in reports})
     policies = sorted({r.speech_policy for r in reports})
-    shown = ", ".join(_SOURCE_NOTE.get(s, s) for s in sources) or "none"
+    shown = ", ".join(_SOURCE_NOTE.get(s, s) + (f" ({d})" if d else "") for s, d in sources) or "none"
     lines = [
         f"callcheck: {len(reports)} thread(s), judge source: {shown}",
         f"speech policy: {policy_note or ', '.join(policies) or 'gate'}",
@@ -302,8 +311,9 @@ def render_agreement(rows: list, item_ids: list[str], judge_desc: str) -> str:
     judged = [r for r in rows if r.judged]
     if not judged:
         lines += _wrap("No model judgments available: no cache entry for any thread in q3/cache/judgments.json "
-                       "and no working ANTHROPIC_API_KEY.", "  ", "")
-        lines.append("Create them with ANTHROPIC_API_KEY set: uv run callcheck --live")
+                       "and no usable live backend.", "  ", "")
+        lines += _wrap("Create them with ANTHROPIC_API_KEY set (uv run callcheck --live) or through the Claude "
+                       "Code CLI (CALLCHECK_BACKEND=claude-cli uv run callcheck --live)", "  ", "")
         return "\n".join(ascii_text(ln) for ln in lines) + "\n"
     lines.append(f"{'thread':<10}  {'all items':<12}  {'on path':<12}  {'terminal':<9}  disagreements")
     lines.append("-" * 96)

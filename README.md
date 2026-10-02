@@ -19,14 +19,15 @@ uv sync
 uv run callcheck                          # model judge from the committed cache q3/cache/judgments.json, no key needed
 uv run callcheck --labels hand            # the author's own hand labels instead of the model (no key, no cache)
 uv run callcheck --live                   # refresh judgments from the API: needs ANTHROPIC_API_KEY
+CALLCHECK_BACKEND=claude-cli uv run callcheck --live   # same refresh through the Claude Code CLI login
 uv run callcheck --json                   # write q3/out/report.json (or --out FILE), print only the path
 uv run callcheck --thread thread_06       # one thread
 uv run callcheck --agreement              # model judge vs hand labels, per item and per thread
 uv run callcheck --speech-policy soft     # speech leaks become release warnings instead of blockers
-uv run pytest -q                          # 283 passed, 1 skipped, no network
+uv run pytest -q                          # 300 passed, no network
 ```
 
-Model: `claude-sonnet-5-5` by default, override with `CALLCHECK_MODEL`. The key is read from `ANTHROPIC_API_KEY` only and never written anywhere. With no cache entry and no working key, the harness does not crash: it prints a warning and every affected thread becomes NEEDS_REVIEW.
+Model: `claude-sonnet-5-5` by default, override with `CALLCHECK_MODEL`. The key is read from `ANTHROPIC_API_KEY` only and never written anywhere. `CALLCHECK_BACKEND=claude-cli` sends the same prompt and schema through the Claude Code CLI (`claude -p`) instead; the cache key does not depend on the backend. With no cache entry and no working backend, the harness does not crash: it prints a warning and every affected thread becomes NEEDS_REVIEW.
 
 Exit codes follow the release verdict: `0` all PASS, `1` any FAIL, `2` NEEDS_REVIEW and no FAIL, `3` usage or input error.
 
@@ -39,14 +40,13 @@ Exit codes follow the release verdict: `0` all PASS, `1` any FAIL, `2` NEEDS_REV
 5. Every finding carries evidence, turn, problem, fix hint and owner (prompt, engine, simulator, harness); the fix list groups the same fix across threads.
 6. The simulator's `[GOAL_ACHIEVED]` marker is shown as a comparison column only.
 
-## Sample output (hand labels)
+## Sample output
 
-The run below uses `--labels hand`: the author's own reading of each transcript, not model output.
+The run below uses the model judge from the committed cache, so it needs no key.
 
-<!-- JUDGE_OUTPUT: replace with uv run callcheck output once the cache is committed -->
 ```
-$ uv run callcheck --labels hand
-callcheck: 10 thread(s), judge source: hand (the author's own labels, NOT model output)
+$ uv run callcheck
+callcheck: 10 thread(s), judge source: cache (claude-sonnet-5-5 via claude-cli, prompt v2)
 speech policy: gate (default for agent_config.transport_mode = voice)
 
 Task outcome: PASS 6, FAIL 1, NEEDS_REVIEW 3. Release: PASS 2, FAIL 7, NEEDS_REVIEW 1. Top blocker:
@@ -69,6 +69,10 @@ gates: route = correct routing, answer = decisive answers, term = proper termina
 cells: pass, FAIL (confident), review (harness not confident), n/a (no terminal reached, routing has no meaning).
 PASS* = release PASS with warnings. sim marker = simulator [GOAL_ACHIEVED], not ground truth
 ```
+
+Judgments in q3/cache/judgments.json were generated with claude-sonnet-5-5 through the Claude Code CLI (`CALLCHECK_BACKEND=claude-cli`); `--live` with `ANTHROPIC_API_KEY` uses the API directly with the same prompt and schema.
+
+Agreement with the author's hand labels (`uv run callcheck --agreement`): 80/80 item answers (100%), 42/42 on the expected path, 10/10 expected terminals, and `first_available_turn` matches on all 80 items. These are one person's labels on 10 short calls, so this shows the judge reads them the same way, not that it is calibrated. `--labels hand` gives the same verdicts and gate cells as above.
 
 The full output continues with a ranked fix list, per thread detail and the simulator comparison (see [q3/README.md](q3/README.md#output-anatomy)).
 
