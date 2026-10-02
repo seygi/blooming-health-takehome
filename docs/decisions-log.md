@@ -19,3 +19,7 @@
 - Text report folds transcript unicode to ASCII (em dash to "-", curly quotes to straight) so output is plain ASCII.
 - Judge schema: turn fields are an enum of the thread's caller ids (C<n>) instead of a regex pattern, since strict tool mode documents enum/anyOf but not pattern.
 - Judge prompt v2: turn ids A-open/C<t>/A<t>, agent lines only for context, corrections supersede, opener 'over the phone' is not a q5_choice answer. Cache key hashes the system prompt, tool schema and rendered user message.
+- Two verdicts per thread: task outcome (routing, decisive answers, termination) and release (adds clean speech under --speech-policy, default gate for voice). Prod review showed one verdict hid that routing was right on every decidable thread.
+- contradictory_close (goodbye on _complete) is soft major: _complete semantics are an assumption and the eval ran the agent standalone.
+- Unmatched closing text is NEEDS_REVIEW (terminal_unrecognized), never a confident no_terminal FAIL.
+- Hand labels (author's own reading) live in callcheck/hand_labels.py for tests, the --labels hand demo, and --agreement against the model judge.
