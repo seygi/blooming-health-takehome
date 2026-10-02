@@ -1,0 +1,1581 @@
+{
+  "dataset": "voice_agent_conversations",
+  "description": "10 conversation threads between an AI agent and a simulated caller, produced by an automated evaluation run in the dev environment. The agent is a triage screener for Medi-Cal renewal outreach: it must find out whether the caller wants phone help renewing, whether their coverage is active, whether they have other insurance, whether they live in San Diego County, and whether they received the county's yellow renewal packet — then route them correctly (complete the renewal, schedule a callback, refer them, or close out). Each thread is an independent episode: same agent, different simulated caller situations covering different paths through the screening.",
+  "notes": [
+    "The caller is an LLM simulation, not a real person; all personal details are synthetic.",
+    "The first agent message is the agent's opener; after that, each turn is a caller message followed by the agent's reply.",
+    "Threads vary in how well the agent handled the call; that variance is the point of the dataset.",
+    "agent_config is the configuration of the agent that produced these threads (its screening items and outcomes are the intended behavior to evaluate against). team_config is the team it belongs to; the evaluation run exercised this one agent standalone, not the full team sequence. Configs were last updated 2026-07-02; the episodes ran 2026-07-01."
+  ],
+  "agent_id": "fhcsd_triage_screener",
+  "source": {
+    "system": "gym-service (agent evaluation), dev environment",
+    "campaign_id": "campaign_9ee8e97a11cd",
+    "campaign_name": "FHCSD Triage — All Paths (random explorer, 20 eps)",
+    "run_date": "2026-07-01",
+    "mode": "text simulation"
+  },
+  "num_threads": 10,
+  "agent_config": {
+    "agent_id": "fhcsd_triage_screener",
+    "name": "FHCSD Triage Screener",
+    "description": "FHCSD Phase-1 Medi-Cal renewal triage: intent (Q1) + eligibility (Q2-Q5) + decline sub-flow. generic_followup.",
+    "project_id": null,
+    "team_id": "86cf19f3-a9a6-4812-b9a7-ae7f9d0d52c3",
+    "status": "active",
+    "archived": false,
+    "archived_at": null,
+    "archived_by": null,
+    "transport_mode": "voice",
+    "variables": {},
+    "components": {
+      "transport": {
+        "type": "smallwebrtc",
+        "config": {},
+        "types": null,
+        "mode": "voice"
+      },
+      "stt": null,
+      "llm": {
+        "type": "openai_realtime",
+        "config": {},
+        "model": "gpt-realtime-mini"
+      },
+      "tts": null,
+      "vad": null,
+      "turn_detection": null,
+      "audio_filter": null,
+      "survey": null
+    },
+    "brain_type": "engine",
+    "flow": null,
+    "engine": "generic_followup",
+    "engine_config": {
+      "items": [
+        {
+          "id": "q1_intent",
+          "label": "Q1 Intent",
+          "questions": [
+            {
+              "id": "a",
+              "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?",
+              "type": "choice",
+              "options": [
+                "Yes",
+                "Not interested"
+              ],
+              "scenarios": [
+                {
+                  "id": "yes",
+                  "goto": "item_q2_active:question_a",
+                  "means": "Member WANTS help renewing Medi-Cal now over the phone."
+                },
+                {
+                  "id": "not_interested",
+                  "goto": "item_decline:question_a",
+                  "means": "Member is NOT interested / declines help right now."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "q2_active",
+          "label": "Q2 Active Medi-Cal",
+          "questions": [
+            {
+              "id": "a",
+              "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage?",
+              "type": "choice",
+              "options": [
+                "Active",
+                "Not active or unsure"
+              ],
+              "scenarios": [
+                {
+                  "id": "active",
+                  "means": "Confirms they currently HAVE ACTIVE Medi-Cal coverage.",
+                  "disposition": "medi_cal_active"
+                },
+                {
+                  "id": "inactive",
+                  "goto": "item_q3_coverage:question_a",
+                  "means": "Not active, or unsure whether it's active."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "q3_coverage",
+          "label": "Q3 Other Coverage",
+          "questions": [
+            {
+              "id": "a",
+              "text": "Do you currently have any other health insurance — through work, school, Kaiser, TriCare, Covered California, or a private plan?",
+              "type": "boolean",
+              "scenarios": [
+                {
+                  "id": "true",
+                  "say": "Got it, thanks — since you're already covered there's nothing you need to do for Medi-Cal right now; just so we have it on file:",
+                  "goto": "item_q3_plan:question_a",
+                  "means": "Has OTHER health insurance (work/school/Kaiser/TriCare/Covered California/private)."
+                },
+                {
+                  "id": "false",
+                  "goto": "item_q4_residency:question_a",
+                  "means": "Has NO other coverage."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "q3_plan",
+          "label": "Q3 Which Plan",
+          "questions": [
+            {
+              "id": "a",
+              "text": "Which plan is that?",
+              "type": "choice",
+              "options": [
+                "AARP",
+                "Aetna",
+                "Anthem Blue Cross",
+                "CHG",
+                "Cigna",
+                "Covered California",
+                "Health Net",
+                "Humana",
+                "Kaiser Permanente",
+                "Molina",
+                "Sharp",
+                "Tricare",
+                "UHC",
+                "Other"
+              ],
+              "scenarios": [
+                {
+                  "id": "__close__",
+                  "means": "Placeholder so the plan is captured then the call closes (no per-plan branch).",
+                  "disposition": "other_coverage_no_action"
+                }
+              ],
+              "default_route": "_complete"
+            }
+          ]
+        },
+        {
+          "id": "q4_residency",
+          "label": "Q4 Residency",
+          "questions": [
+            {
+              "id": "a",
+              "text": "Do you still live in San Diego County?",
+              "type": "boolean",
+              "scenarios": [
+                {
+                  "id": "true",
+                  "goto": "item_q5_packet:question_a",
+                  "means": "Still lives in San Diego County."
+                },
+                {
+                  "id": "false",
+                  "means": "Does NOT live in San Diego County (out of county).",
+                  "disposition": "escalated_chw_out_of_county"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "q5_packet",
+          "label": "Q5 Yellow Packet",
+          "questions": [
+            {
+              "id": "a",
+              "text": "Did you receive the yellow renewal packet from the county — and do you still have it?",
+              "type": "choice",
+              "options": [
+                "Already submitted",
+                "Still have it",
+                "No or lost it"
+              ],
+              "scenarios": [
+                {
+                  "id": "already_submitted",
+                  "means": "Already filled it out and mailed it back / submitted it.",
+                  "disposition": "escalated_chw_status_check"
+                },
+                {
+                  "id": "still_has",
+                  "goto": "item_q5_choice:question_a",
+                  "means": "Received it and STILL HAS the packet (not yet submitted)."
+                },
+                {
+                  "id": "no_or_lost",
+                  "say": "No problem — let's get your renewal started.",
+                  "goto": "_complete",
+                  "means": "Never received it, or lost it / doesn't have it."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "q5_choice",
+          "label": "Q5 Packet Choice",
+          "questions": [
+            {
+              "id": "a",
+              "text": "Since you still have the county's packet, you've got two options: I can help you complete your renewal right now over the phone, or set up an in-person appointment with Family Health Centers of San Diego to go through the packet with you. Which would you prefer?",
+              "type": "choice",
+              "options": [
+                "In-person appointment",
+                "Complete by phone now"
+              ],
+              "scenarios": [
+                {
+                  "id": "in_person",
+                  "means": "Prefers an IN-PERSON appointment.",
+                  "disposition": "escalated_chw_appointment"
+                },
+                {
+                  "id": "by_phone",
+                  "say": "Great — let's get started.",
+                  "goto": "_complete",
+                  "means": "Wants to complete it BY PHONE now."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "decline",
+          "label": "Decline Sub-flow",
+          "questions": [
+            {
+              "id": "a",
+              "text": "Totally understand. Do you mind sharing why, so I can make sure you get the right help?",
+              "type": "text",
+              "scenarios": [
+                {
+                  "id": "reveals_other_coverage",
+                  "say": "Got it, thanks — since you're already covered there's nothing you need to do for Medi-Cal right now; just so we have it on file:",
+                  "goto": "item_q3_plan:question_a",
+                  "means": "Reason reveals they NOW HAVE OTHER COVERAGE (already insured elsewhere)."
+                },
+                {
+                  "id": "reveals_active",
+                  "means": "Reason reveals their Medi-Cal is ALREADY ACTIVE.",
+                  "disposition": "medi_cal_active"
+                },
+                {
+                  "id": "reveals_out_of_county",
+                  "means": "Reason reveals they MOVED OUT OF SAN DIEGO COUNTY.",
+                  "disposition": "escalated_chw_out_of_county"
+                },
+                {
+                  "id": "self_submit",
+                  "means": "Will submit the renewal on their own.",
+                  "disposition": "declined_renewal"
+                },
+                {
+                  "id": "not_interested",
+                  "means": "Simply not interested (generic), no disqualifying detail.",
+                  "disposition": "declined_renewal"
+                },
+                {
+                  "do": "flag_urgent",
+                  "id": "privacy_concern",
+                  "means": "Privacy / immigration / data-sharing concern.",
+                  "disposition": "declined_privacy_callback"
+                },
+                {
+                  "id": "other",
+                  "means": "Other reason not covered above (retain free text).",
+                  "disposition": "declined_renewal"
+                }
+              ],
+              "default_route": "_complete"
+            }
+          ]
+        }
+      ],
+      "org_id": "ba5512c7-132a-4173-940c-0bc7288e6aa9",
+      "outcomes": [
+        {
+          "id": "medi_cal_active",
+          "say": "That's great news — it sounds like there's nothing you need to do right now. Take care.",
+          "label": "Medi-Cal active — no action needed",
+          "next_action": "end_call"
+        },
+        {
+          "id": "other_coverage_no_action",
+          "say": "Thanks — since you're already covered, there's nothing you need to do for Medi-Cal right now. Take care.",
+          "label": "Has other coverage — no action needed",
+          "next_action": "end_call"
+        },
+        {
+          "id": "escalated_chw_out_of_county",
+          "say": "Thanks for letting me know. Because Medi-Cal is handled county by county, I'll have someone from Family Health Centers of San Diego follow up to point you in the right direction. Take care.",
+          "label": "Escalated to CHW (out of county)",
+          "next_action": "handoff"
+        },
+        {
+          "id": "escalated_chw_status_check",
+          "say": "Thanks — it sounds like you've already submitted. I'll have someone from Family Health Centers of San Diego check on its status for you. Take care.",
+          "label": "Escalated to CHW (status check)",
+          "next_action": "handoff"
+        },
+        {
+          "id": "escalated_chw_appointment",
+          "say": "Great — I'll have our team reach out to schedule that with you. Take care.",
+          "label": "Escalated to CHW — in-person appointment requested",
+          "next_action": "handoff"
+        },
+        {
+          "id": "declined_renewal",
+          "say": "Thanks for letting me know — take care.",
+          "flags": {
+            "declined": true
+          },
+          "label": "Declined — renewal",
+          "next_action": "end_call"
+        },
+        {
+          "id": "declined_privacy_callback",
+          "say": "I completely understand wanting to be careful with your information. I'll note that someone from Family Health Centers of San Diego can give you a call to talk it through whenever you'd like — no pressure at all. Take care.",
+          "flags": {
+            "declined": true,
+            "human_callback": true
+          },
+          "label": "Declined — privacy (callback offered)",
+          "next_action": "end_call"
+        }
+      ],
+      "conversation_mode": "natural"
+    },
+    "mcp_tools": [],
+    "agent_tools": [],
+    "tool_configurations": [],
+    "precall_task_ids": [],
+    "data_collection": {
+      "enabled": true,
+      "fields": [],
+      "endpoints": {
+        "database": null,
+        "webhook": null,
+        "broadcast": null
+      }
+    },
+    "capabilities": {
+      "specializations": [],
+      "languages": [
+        "en"
+      ],
+      "knowledge_domains": [],
+      "max_concurrent_sessions": 10,
+      "transfer_enabled": false,
+      "can_accept_transfers": false,
+      "availability_schedule": null
+    },
+    "metadata": {},
+    "created_at": "2026-07-01T17:29:43.812130",
+    "updated_at": "2026-07-02T19:25:24.285161"
+  },
+  "team_config": {
+    "id": "86cf19f3-a9a6-4812-b9a7-ae7f9d0d52c3",
+    "org_id": "ba5512c7-132a-4173-940c-0bc7288e6aa9",
+    "project_id": null,
+    "team_id": "fhcsd_triage_screener_team",
+    "name": "FHCSD Assessment A",
+    "description": "",
+    "color": "#10b981",
+    "project_name": null,
+    "configuration": {
+      "agents": [
+        {
+          "agent_id": "Receptionist_FHCSD",
+          "name": null,
+          "engine": null,
+          "role": "primary",
+          "trigger": null,
+          "config": {},
+          "enabled": true,
+          "order": 0
+        },
+        {
+          "agent_id": "fhcsd_triage_screener",
+          "name": null,
+          "engine": null,
+          "role": "primary",
+          "trigger": null,
+          "config": {},
+          "enabled": true,
+          "order": 1
+        },
+        {
+          "agent_id": "MC_216",
+          "name": null,
+          "engine": null,
+          "role": "primary",
+          "trigger": null,
+          "config": {},
+          "enabled": true,
+          "order": 2
+        }
+      ],
+      "persona": null,
+      "deterministic_nodes": [],
+      "connections": [
+        {
+          "source": "Receptionist_FHCSD",
+          "target": "fhcsd_triage_screener"
+        },
+        {
+          "source": "fhcsd_triage_screener",
+          "target": "MC_216"
+        }
+      ],
+      "rules_of_engagement": {
+        "max_call_duration_min": 45,
+        "max_total_duration_min": 60,
+        "escalation_triggers": [],
+        "escalation_target": null,
+        "language_support": [
+          "en",
+          "es"
+        ],
+        "auto_detect_language": false,
+        "follow_up_schedule": {
+          "initial_call": "0 days",
+          "follow_up_1": null,
+          "follow_up_2": null,
+          "follow_up_3": null
+        },
+        "max_retry_attempts": 3,
+        "retry_backoff_hours": [
+          1,
+          24,
+          72
+        ],
+        "business_hours": null,
+        "timezone": "America/Los_Angeles",
+        "quality_gates": {
+          "min_data_completeness": 0.8,
+          "min_confidence_score": 0.7,
+          "require_all_primary_agents": true
+        },
+        "allow_voicemail": false,
+        "allow_sms_fallback": false,
+        "consent_required": true,
+        "sms_sender": null,
+        "sms_session_window_hours": 144,
+        "sms_nudge_cadence_hours": 24,
+        "sms_help_program_name": null,
+        "sms_help_support_contact": null,
+        "sms_help_purpose": null
+      },
+      "conversation_settings": {
+        "personality": "casual",
+        "default_language": "en",
+        "allow_interruptions": true,
+        "first_turn_protection": true
+      },
+      "audio_settings": {
+        "threshold": 0.5,
+        "noise_reduction_type": "NEAR_FIELD",
+        "noise_reduction_enabled": false
+      },
+      "model_settings": {
+        "model": "gpt-realtime-1.5",
+        "transcription_model": "whisper-1",
+        "voice": "sage",
+        "speed": 1.0,
+        "output_gain_db": 0.0,
+        "temperature": 0.2,
+        "max_tokens": 1024,
+        "turn_detection_mode": "VAD",
+        "eagerness": "Medium",
+        "interrupt_response": true,
+        "silence_duration_ms": 700,
+        "prefix_padding_ms": 300,
+        "threshold": 0.5,
+        "noise_reduction_type": "NEAR_FIELD",
+        "noise_reduction_enabled": true,
+        "audio_filter_enabled": true,
+        "audio_warmup_enabled": false,
+        "audio_warmup_duration_seconds": 3.0,
+        "audio_preroll_enabled": true,
+        "audio_preroll_duration_seconds": 1.5,
+        "audio_hpf_cutoff_hz": 80.0,
+        "audio_settling_frames_after_warmup": 0,
+        "audio_input_target_rms_dbfs": null,
+        "audio_filter_type": "hush",
+        "rnnoise_gain_db": -3.0,
+        "rnnoise_vad_threshold": 0.0,
+        "rnnoise_vad_smoothing_frames": 0,
+        "rnnoise_vad_hold_frames": 0,
+        "rnnoise_vad_lookback_frames": 5,
+        "rnnoise_pre_emphasis_alpha": 0.0,
+        "dtln_use_quantized": true,
+        "dtln_gain_db": -3.0,
+        "dtln_exciter_enabled": false,
+        "dtln_vad_threshold": 0.0,
+        "dtln_vad_smoothing_frames": 0,
+        "dtln_vad_hold_frames": 0,
+        "dtln_vad_lookback_frames": 5,
+        "dtln_pre_emphasis_alpha": 0.0,
+        "gtcrn_gain_db": -3.0,
+        "gtcrn_pre_emphasis_alpha": 0.92,
+        "gtcrn_gate_enabled": false,
+        "gtcrn_exciter_enabled": false,
+        "krisp_noise_suppression_level": 100,
+        "frcrn_gain_db": 0.0,
+        "frcrn_pre_emphasis_alpha": 0.0,
+        "frcrn_gate_enabled": true,
+        "frcrn_exciter_enabled": true,
+        "hush_gain_db": 2.0,
+        "hush_atten_lim_db": 65.0,
+        "hush_pre_emphasis_alpha": 0.96,
+        "hush_gate_enabled": true,
+        "hush_gate_open_threshold_db": -50.0,
+        "hush_gate_close_threshold_db": -60.0,
+        "hush_gate_floor_db": -26.0,
+        "hush_gate_attack_ms": 2.0,
+        "hush_gate_release_ms": 250.0,
+        "hush_gate_lookahead_ms": 0.0,
+        "hush_gate_vad_bypass": 0.4,
+        "hush_exciter_enabled": true,
+        "hush_exciter_drive_db": 3.0,
+        "hush_exciter_mix": 0.25,
+        "hush_exciter_even_odd_ratio": 0.3,
+        "hush_exciter_presence_freq": 3500.0,
+        "hush_exciter_presence_gain_db": 3.0,
+        "hush_exciter_use_oversampling": true,
+        "hush_exciter_hp_cutoff": 3000.0,
+        "hush_exciter_sibilance_threshold": 0.3,
+        "hush_exciter_sibilance_reduction": 0.5,
+        "hush_exciter_mud_freq": 500.0,
+        "hush_exciter_mud_cut_db": -1.5,
+        "hush_exciter_oversample_factor": 4,
+        "hush_comfort_noise_dbfs": null,
+        "atennuate_gain_db": -3.0,
+        "atennuate_pre_emphasis_alpha": 0.0,
+        "atennuate_gate_enabled": false,
+        "atennuate_gate_open_threshold_db": -50.0,
+        "atennuate_gate_close_threshold_db": -60.0,
+        "atennuate_gate_floor_db": -26.0,
+        "atennuate_gate_attack_ms": 2.0,
+        "atennuate_gate_release_ms": 250.0,
+        "atennuate_gate_lookahead_ms": 0.0,
+        "atennuate_gate_vad_bypass": 0.4,
+        "atennuate_exciter_enabled": true,
+        "atennuate_exciter_drive_db": 3.0,
+        "atennuate_exciter_mix": 0.25,
+        "atennuate_exciter_even_odd_ratio": 0.3,
+        "atennuate_exciter_presence_freq": 3500.0,
+        "atennuate_exciter_presence_gain_db": 3.0,
+        "atennuate_exciter_use_oversampling": true,
+        "atennuate_exciter_hp_cutoff": 3000.0,
+        "atennuate_exciter_sibilance_threshold": 0.3,
+        "atennuate_exciter_sibilance_reduction": 0.5,
+        "atennuate_exciter_mud_freq": 500.0,
+        "atennuate_exciter_mud_cut_db": -1.5,
+        "atennuate_exciter_oversample_factor": 4,
+        "deepfilternet3_gain_db": -3.0,
+        "deepfilternet3_pre_emphasis_alpha": 0.0,
+        "deepfilternet3_gate_enabled": false,
+        "deepfilternet3_gate_open_threshold_db": -50.0,
+        "deepfilternet3_gate_close_threshold_db": -60.0,
+        "deepfilternet3_gate_floor_db": -26.0,
+        "deepfilternet3_gate_attack_ms": 2.0,
+        "deepfilternet3_gate_release_ms": 250.0,
+        "deepfilternet3_gate_lookahead_ms": 0.0,
+        "deepfilternet3_gate_vad_bypass": 0.4,
+        "deepfilternet3_exciter_enabled": false,
+        "deepfilternet3_exciter_drive_db": 3.0,
+        "deepfilternet3_exciter_mix": 0.25,
+        "deepfilternet3_exciter_even_odd_ratio": 0.3,
+        "deepfilternet3_exciter_presence_freq": 3500.0,
+        "deepfilternet3_exciter_presence_gain_db": 3.0,
+        "deepfilternet3_exciter_use_oversampling": true,
+        "deepfilternet3_exciter_hp_cutoff": 3000.0,
+        "deepfilternet3_exciter_sibilance_threshold": 0.3,
+        "deepfilternet3_exciter_sibilance_reduction": 0.5,
+        "deepfilternet3_exciter_mud_freq": 500.0,
+        "deepfilternet3_exciter_mud_cut_db": -1.5,
+        "deepfilternet3_exciter_oversample_factor": 4,
+        "deepfilternet3_post_filter": true,
+        "deepfilternet3_attenuation_limit_db": 100.0,
+        "record_filtered_audio": false,
+        "recording_dir": null,
+        "comparative_recording_enabled": false
+      },
+      "conversation_pruning": null,
+      "hydration_policy": null,
+      "intervention_settings": {
+        "use_defaults": true,
+        "disabled_defaults": [],
+        "custom_categories": []
+      },
+      "safety_monitor_settings": null,
+      "os_config": {
+        "persona": null,
+        "capabilities": {
+          "transfer_capable_engines": [
+            "generic_followup"
+          ],
+          "allowed_personalities": [
+            "warm",
+            "formal",
+            "casual",
+            "clinical",
+            "simple"
+          ],
+          "hallucination_redirect_keywords": [
+            "human",
+            "agent",
+            "person",
+            "representative",
+            "someone"
+          ],
+          "completion_signals": {
+            "tool_names": [
+              "complete_survey",
+              "complete_form",
+              "complete_verification",
+              "complete_followup",
+              "complete_generic_followup",
+              "complete_resolution"
+            ],
+            "suffix_patterns": [
+              "_complete",
+              "_done",
+              "_finished"
+            ]
+          }
+        },
+        "tool_schemas": {},
+        "subgraphs": [
+          {
+            "id": "oos_handler",
+            "display_name": "Out-of-Scope Question Handler",
+            "engine_type": "oos",
+            "trigger_tool": {
+              "name": "handle_out_of_scope",
+              "prompt_id": "os.subgraph.enter",
+              "parameters": {
+                "type": "object",
+                "required": [
+                  "query"
+                ],
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "description": "The out-of-scope question from the caller"
+                  },
+                  "category": {
+                    "type": "string",
+                    "description": "Category of the question if known"
+                  }
+                }
+              }
+            },
+            "return_tool": {
+              "name": "return_to_main_flow",
+              "parameters": {
+                "type": "object",
+                "required": [
+                  "summary"
+                ],
+                "properties": {
+                  "summary": {
+                    "type": "string",
+                    "description": "Brief summary of how the question was handled"
+                  }
+                }
+              }
+            },
+            "additional_tools": [],
+            "prompt_category": "oos",
+            "is_system": true,
+            "knowledge_base_id": "",
+            "enabled": false
+          }
+        ],
+        "operational": {
+          "timeouts": {
+            "flight_recorder": 3.0,
+            "prompt_compiler": 5.0
+          },
+          "state_ttl": 86400,
+          "redis_key_prefix": "mos",
+          "auth_header": "X-Internal-Token"
+        },
+        "escalation": null
+      },
+      "version": "1.0",
+      "has_dedicated_closer": false,
+      "machine_detection_mode": null,
+      "machine_detection": null,
+      "dial_timeout_seconds": null,
+      "post_call_outcome": null,
+      "channel_routing_strategy": "org_default",
+      "default_channel": "voice"
+    },
+    "metadata": {
+      "configuration": {
+        "agents": [
+          {
+            "role": "primary",
+            "order": 0,
+            "config": {},
+            "enabled": true,
+            "trigger": null,
+            "agent_id": "Receptionist_FHCSD"
+          },
+          {
+            "role": "primary",
+            "order": 1,
+            "config": {},
+            "enabled": true,
+            "trigger": null,
+            "agent_id": "fhcsd_triage_screener"
+          },
+          {
+            "role": "primary",
+            "order": 2,
+            "config": {},
+            "enabled": true,
+            "trigger": null,
+            "agent_id": "MC_216"
+          }
+        ],
+        "persona": null,
+        "version": "1.0",
+        "os_config": {
+          "persona": null,
+          "subgraphs": [
+            {
+              "id": "oos_handler",
+              "enabled": false,
+              "is_system": true,
+              "engine_type": "oos",
+              "return_tool": {
+                "name": "return_to_main_flow",
+                "parameters": {
+                  "type": "object",
+                  "required": [
+                    "summary"
+                  ],
+                  "properties": {
+                    "summary": {
+                      "type": "string",
+                      "description": "Brief summary of how the question was handled"
+                    }
+                  }
+                }
+              },
+              "display_name": "Out-of-Scope Question Handler",
+              "trigger_tool": {
+                "name": "handle_out_of_scope",
+                "prompt_id": "os.subgraph.enter",
+                "parameters": {
+                  "type": "object",
+                  "required": [
+                    "query"
+                  ],
+                  "properties": {
+                    "query": {
+                      "type": "string",
+                      "description": "The out-of-scope question from the caller"
+                    },
+                    "category": {
+                      "type": "string",
+                      "description": "Category of the question if known"
+                    }
+                  }
+                }
+              },
+              "prompt_category": "oos",
+              "additional_tools": [],
+              "knowledge_base_id": ""
+            }
+          ],
+          "escalation": null,
+          "operational": {
+            "timeouts": {
+              "flight_recorder": 3.0,
+              "prompt_compiler": 5.0
+            },
+            "state_ttl": 86400,
+            "auth_header": "X-Internal-Token",
+            "redis_key_prefix": "mos"
+          },
+          "capabilities": {
+            "completion_signals": {
+              "tool_names": [
+                "complete_survey",
+                "complete_form",
+                "complete_verification",
+                "complete_followup",
+                "complete_generic_followup",
+                "complete_resolution"
+              ],
+              "suffix_patterns": [
+                "_complete",
+                "_done",
+                "_finished"
+              ]
+            },
+            "allowed_personalities": [
+              "warm",
+              "formal",
+              "casual",
+              "clinical",
+              "simple"
+            ],
+            "transfer_capable_engines": [
+              "generic_followup"
+            ],
+            "hallucination_redirect_keywords": [
+              "human",
+              "agent",
+              "person",
+              "representative",
+              "someone"
+            ]
+          },
+          "tool_schemas": {}
+        },
+        "connections": [
+          {
+            "source": "Receptionist_FHCSD",
+            "target": "fhcsd_triage_screener"
+          },
+          {
+            "source": "fhcsd_triage_screener",
+            "target": "MC_216"
+          }
+        ],
+        "audio_settings": {
+          "threshold": 0.5,
+          "noise_reduction_type": "NEAR_FIELD",
+          "noise_reduction_enabled": false
+        },
+        "model_settings": {
+          "model": "gpt-realtime-1.5",
+          "speed": 1.0,
+          "voice": "sage",
+          "eagerness": "Medium",
+          "threshold": 0.5,
+          "max_tokens": 1024,
+          "temperature": 0.2,
+          "dtln_gain_db": -3.0,
+          "hush_gain_db": 2.0,
+          "frcrn_gain_db": 0.0,
+          "gtcrn_gain_db": -3.0,
+          "recording_dir": null,
+          "rnnoise_gain_db": -3.0,
+          "hush_exciter_mix": 0.25,
+          "atennuate_gain_db": -3.0,
+          "audio_filter_type": "hush",
+          "hush_atten_lim_db": 65.0,
+          "hush_gate_enabled": true,
+          "prefix_padding_ms": 300,
+          "dtln_use_quantized": true,
+          "dtln_vad_threshold": 0.0,
+          "frcrn_gate_enabled": true,
+          "gtcrn_gate_enabled": false,
+          "hush_gate_floor_db": -26.0,
+          "interrupt_response": true,
+          "audio_hpf_cutoff_hz": 80.0,
+          "hush_gate_attack_ms": 2.0,
+          "silence_duration_ms": 700,
+          "transcription_model": "whisper-1",
+          "turn_detection_mode": "VAD",
+          "audio_filter_enabled": true,
+          "audio_warmup_enabled": false,
+          "dtln_exciter_enabled": false,
+          "dtln_vad_hold_frames": 0,
+          "hush_exciter_enabled": true,
+          "hush_gate_release_ms": 250.0,
+          "hush_gate_vad_bypass": 0.4,
+          "noise_reduction_type": "NEAR_FIELD",
+          "atennuate_exciter_mix": 0.25,
+          "audio_preroll_enabled": true,
+          "frcrn_exciter_enabled": true,
+          "gtcrn_exciter_enabled": false,
+          "hush_exciter_drive_db": 3.0,
+          "hush_exciter_mud_freq": 500.0,
+          "record_filtered_audio": false,
+          "rnnoise_vad_threshold": 0.0,
+          "atennuate_gate_enabled": false,
+          "deepfilternet3_gain_db": -3.0,
+          "hush_exciter_hp_cutoff": 3000.0,
+          "hush_gate_lookahead_ms": 0.0,
+          "atennuate_gate_floor_db": -26.0,
+          "dtln_pre_emphasis_alpha": 0.0,
+          "hush_comfort_noise_dbfs": null,
+          "hush_exciter_mud_cut_db": -1.5,
+          "hush_pre_emphasis_alpha": 0.96,
+          "noise_reduction_enabled": true,
+          "rnnoise_vad_hold_frames": 0,
+          "atennuate_gate_attack_ms": 2.0,
+          "dtln_vad_lookback_frames": 5,
+          "frcrn_pre_emphasis_alpha": 0.0,
+          "gtcrn_pre_emphasis_alpha": 0.92,
+          "atennuate_exciter_enabled": true,
+          "atennuate_gate_release_ms": 250.0,
+          "atennuate_gate_vad_bypass": 0.4,
+          "dtln_vad_smoothing_frames": 0,
+          "atennuate_exciter_drive_db": 3.0,
+          "atennuate_exciter_mud_freq": 500.0,
+          "deepfilternet3_exciter_mix": 0.25,
+          "deepfilternet3_post_filter": true,
+          "hush_exciter_presence_freq": 3500.0,
+          "rnnoise_pre_emphasis_alpha": 0.0,
+          "atennuate_exciter_hp_cutoff": 3000.0,
+          "atennuate_gate_lookahead_ms": 0.0,
+          "audio_input_target_rms_dbfs": null,
+          "deepfilternet3_gate_enabled": false,
+          "hush_exciter_even_odd_ratio": 0.3,
+          "hush_gate_open_threshold_db": -50.0,
+          "rnnoise_vad_lookback_frames": 5,
+          "atennuate_exciter_mud_cut_db": -1.5,
+          "atennuate_pre_emphasis_alpha": 0.0,
+          "deepfilternet3_gate_floor_db": -26.0,
+          "hush_gate_close_threshold_db": -60.0,
+          "rnnoise_vad_smoothing_frames": 0,
+          "audio_warmup_duration_seconds": 3.0,
+          "comparative_recording_enabled": false,
+          "deepfilternet3_gate_attack_ms": 2.0,
+          "hush_exciter_presence_gain_db": 3.0,
+          "hush_exciter_use_oversampling": true,
+          "krisp_noise_suppression_level": 100,
+          "audio_preroll_duration_seconds": 1.5,
+          "deepfilternet3_exciter_enabled": false,
+          "deepfilternet3_gate_release_ms": 250.0,
+          "deepfilternet3_gate_vad_bypass": 0.4,
+          "hush_exciter_oversample_factor": 4,
+          "atennuate_exciter_presence_freq": 3500.0,
+          "deepfilternet3_exciter_drive_db": 3.0,
+          "deepfilternet3_exciter_mud_freq": 500.0,
+          "atennuate_exciter_even_odd_ratio": 0.3,
+          "atennuate_gate_open_threshold_db": -50.0,
+          "deepfilternet3_exciter_hp_cutoff": 3000.0,
+          "deepfilternet3_gate_lookahead_ms": 0.0,
+          "hush_exciter_sibilance_reduction": 0.5,
+          "hush_exciter_sibilance_threshold": 0.3,
+          "atennuate_gate_close_threshold_db": -60.0,
+          "deepfilternet3_exciter_mud_cut_db": -1.5,
+          "deepfilternet3_pre_emphasis_alpha": 0.0,
+          "atennuate_exciter_presence_gain_db": 3.0,
+          "atennuate_exciter_use_oversampling": true,
+          "audio_settling_frames_after_warmup": 0,
+          "atennuate_exciter_oversample_factor": 4,
+          "deepfilternet3_attenuation_limit_db": 100.0,
+          "deepfilternet3_exciter_presence_freq": 3500.0,
+          "atennuate_exciter_sibilance_reduction": 0.5,
+          "atennuate_exciter_sibilance_threshold": 0.3,
+          "deepfilternet3_exciter_even_odd_ratio": 0.3,
+          "deepfilternet3_gate_open_threshold_db": -50.0,
+          "deepfilternet3_gate_close_threshold_db": -60.0,
+          "deepfilternet3_exciter_presence_gain_db": 3.0,
+          "deepfilternet3_exciter_use_oversampling": true,
+          "deepfilternet3_exciter_oversample_factor": 4,
+          "deepfilternet3_exciter_sibilance_reduction": 0.5,
+          "deepfilternet3_exciter_sibilance_threshold": 0.3
+        },
+        "default_channel": "voice",
+        "hydration_policy": null,
+        "machine_detection": null,
+        "post_call_outcome": null,
+        "deterministic_nodes": [],
+        "rules_of_engagement": {
+          "timezone": "America/Los_Angeles",
+          "sms_sender": null,
+          "quality_gates": {
+            "min_confidence_score": 0.7,
+            "min_data_completeness": 0.8,
+            "require_all_primary_agents": true
+          },
+          "business_hours": null,
+          "allow_voicemail": false,
+          "consent_required": true,
+          "language_support": [
+            "en",
+            "es"
+          ],
+          "sms_help_purpose": null,
+          "escalation_target": null,
+          "allow_sms_fallback": false,
+          "follow_up_schedule": {
+            "follow_up_1": null,
+            "follow_up_2": null,
+            "follow_up_3": null,
+            "initial_call": "0 days"
+          },
+          "max_retry_attempts": 3,
+          "escalation_triggers": [],
+          "retry_backoff_hours": [
+            1,
+            24,
+            72
+          ],
+          "auto_detect_language": false,
+          "max_call_duration_min": 45,
+          "sms_help_program_name": null,
+          "max_total_duration_min": 60,
+          "sms_nudge_cadence_hours": 24,
+          "sms_help_support_contact": null,
+          "sms_session_window_hours": 144
+        },
+        "dial_timeout_seconds": null,
+        "has_dedicated_closer": false,
+        "conversation_settings": {
+          "personality": "casual",
+          "default_language": "en",
+          "allow_interruptions": true
+        },
+        "intervention_settings": {
+          "use_defaults": true,
+          "custom_categories": [],
+          "disabled_defaults": []
+        },
+        "machine_detection_mode": null,
+        "safety_monitor_settings": null,
+        "channel_routing_strategy": "org_default"
+      }
+    },
+    "total_agents": 3,
+    "active_agents": 3,
+    "archived_agents": 0,
+    "created_at": "2026-07-01T17:29:43.883949",
+    "updated_at": "2026-07-02T19:37:46.119383"
+  },
+  "threads": [
+    {
+      "thread_id": "thread_01",
+      "episode_id": "595fd7d1-0d76-45d8-bad3-cf9ff92b88b2",
+      "session_id": "fhcsd_tr_20260701_195803_758_7eb895",
+      "num_turns": 3,
+      "started_at": "2026-07-01T19:58:32.249619+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yes, please. I really need help getting that taken care of today."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage? \n\nPlease let me know."
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "Oh, that’s weird. I definitely have active coverage right now, I just want to make sure I don't lose it."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "That's great news — it sounds like there's nothing you need to do right now."
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "Oh, okay, so I'm all set for this year then? That’s a relief, thank you for checking for me! [GOAL_ACHIEVED]"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "You're very welcome! I'm glad we could get that sorted out. Have a wonderful day, and goodbye!"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_02",
+      "episode_id": "bec0948d-2e5e-44e8-b251-af6908358c64",
+      "session_id": "fhcsd_tr_20260701_195646_802_940d7c",
+      "num_turns": 6,
+      "started_at": "2026-07-01T19:58:51.250091+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yes, please, I definitely need help with that."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage?"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "No, I don't think it's active right now, which is why I’m calling."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Do you currently have any other health insurance — through work, school, Kaiser, TriCare, Covered California, or a private plan?"
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "No, I don't have any other insurance at all."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "Do you still live in San Diego County?"
+        },
+        {
+          "turn": 3,
+          "role": "caller",
+          "text": "Yeah, I still live here in San Diego. I really need help getting my coverage sorted out since I never actually got that yellow renewal packet in the mail."
+        },
+        {
+          "turn": 3,
+          "role": "agent",
+          "text": "Did you receive the yellow renewal packet from the county — and do you still have it?"
+        },
+        {
+          "turn": 4,
+          "role": "caller",
+          "text": "No, I never actually got it in the mail, so I don't have it. Can we just go ahead and do the renewal now?"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "text": "No problem — let's get your renewal started. Thank you for your time, and take care!"
+        },
+        {
+          "turn": 5,
+          "role": "caller",
+          "text": "Sounds good, thanks for your help with this. What do I need to do next to get it processed?"
+        },
+        {
+          "turn": 5,
+          "role": "agent",
+          "text": "You're very welcome! Next, we'll go through the process step by step. One of the first things we’ll do is confirm some personal details, and then we can help you fill out the necessary forms. Let’s start by verifying your name, address, and date of birth. Could you please confirm those details for me?"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_03",
+      "episode_id": "d154d36b-42c2-49a8-afa7-3c5fa841354b",
+      "session_id": "fhcsd_tr_20260701_195753_664_e4446b",
+      "num_turns": 4,
+      "started_at": "2026-07-01T19:58:29.148638+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yeah, I’d definitely like some help with that. My Medi-Cal isn’t active right now and I don't have any other insurance."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage? \n\n(Please let me know your answer.)"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "No, it's definitely not active, and I don't have any other insurance either. Also, I should let you know that I moved out of San Diego County to a different county recently."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Do you currently have any other health insurance — through work, school, Kaiser, TriCare, Covered California, or a private plan? \n\n(Go ahead and let me know.)"
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "No, I don't have any other insurance at all. Since I'm not in San Diego anymore, can you set me up with a community health worker to help me figure out my coverage in this new county?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "Do you still live in San Diego County? \n\n(Please let me know your answer.)"
+        },
+        {
+          "turn": 3,
+          "role": "caller",
+          "text": "No, I actually moved out of the county, so I'm not in San Diego anymore. Can you please have a community health worker reach out to help me with the transition? [GOAL_ACHIEVED]"
+        },
+        {
+          "turn": 3,
+          "role": "agent",
+          "text": "Thanks for letting me know. Because Medi-Cal is handled county by county, I'll have someone from Family Health Centers of San Diego follow up to point you in the right direction. \n\nTake care, and goodbye!"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_04",
+      "episode_id": "720cd9a6-d1ce-4ddf-9531-6ae8ed8e00a9",
+      "session_id": "fhcsd_tr_20260701_195816_959_26377a",
+      "num_turns": 3,
+      "started_at": "2026-07-01T19:59:39.456416+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yes, please, I’d really appreciate your help getting that renewed over the phone."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage?"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "Oh, that's strange. I'm definitely still covered, I use it for my regular doctor visits all the time."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Thanks for sharing that. Just to be clear—do you have active Medi-Cal coverage right now? Please confirm."
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "Yes, I’m 100% sure it’s active; I just used it for an appointment last week. Can we please get started with the renewal?"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "That's great news — it sounds like there's nothing you need to do right now. This was the final message of this follow-up. Thank you, and take care!"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_05",
+      "episode_id": "7f9a14d6-3926-4b35-b28a-35ac3abf50f4",
+      "session_id": "fhcsd_tr_20260701_195733_307_b8cf2f",
+      "num_turns": 6,
+      "started_at": "2026-07-01T19:58:14.647574+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone? \n\n(Waiting for your response.)"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yeah, I’d definitely like some help with that."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage? \n\n(Waiting for your response.)"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "No, it's not active right now. I don't have any other insurance either."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Do you currently have any other health insurance — through work, school, Kaiser, TriCare, Covered California, or a private plan? \n\n(Waiting for your response.)"
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "No, I don't have any other insurance at all."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "Do you still live in San Diego County? \n\n(Waiting for your response.)"
+        },
+        {
+          "turn": 3,
+          "role": "caller",
+          "text": "Yeah, I still live here in San Diego."
+        },
+        {
+          "turn": 3,
+          "role": "agent",
+          "text": "Did you receive the yellow renewal packet from the county — and do you still have it?\n\n(Waiting for your response.)"
+        },
+        {
+          "turn": 4,
+          "role": "caller",
+          "text": "Yeah, I got it, and I still have it—I haven't sent it in yet."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "text": "Since you still have the county's packet, you've got two options: I can help you complete your renewal right now over the phone, or set up an in-person appointment with Family Health Centers of San Diego to go through the packet with you. Which would you prefer? \n\n(Waiting for your response.)"
+        },
+        {
+          "turn": 5,
+          "role": "caller",
+          "text": "I’d definitely prefer to come in for an in-person appointment so I can go through it with someone. That sounds much better for me. [GOAL_ACHIEVED]"
+        },
+        {
+          "turn": 5,
+          "role": "agent",
+          "text": "Great — I'll have our team reach out to schedule that with you. Take care."
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_06",
+      "episode_id": "9feac02d-1916-4cbd-9c95-33dd853815e5",
+      "session_id": "fhcsd_tr_20260701_195524_065_0ed967",
+      "num_turns": 2,
+      "started_at": "2026-07-01T19:56:26.553685+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Actually, I'm not interested in renewing over the phone right now."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Totally understand. Do you mind sharing why, so I can make sure you get the right help?"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "Oh, I actually moved out of San Diego County recently, so I don't need the help here anymore."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Thanks for letting me know. Because Medi-Cal is handled county by county, I'll have someone from Family Health Centers of San Diego follow up to point you in the right direction. \n\nThat was the final message of this follow-up. Take care, and goodbye!"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_07",
+      "episode_id": "a4de3235-cb2c-4dc1-8211-107c012276ed",
+      "session_id": "fhcsd_tr_20260701_195711_364_383ece",
+      "num_turns": 5,
+      "started_at": "2026-07-01T19:57:58.549869+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yes, I'd really appreciate your help with that."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage?"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "No, it’s not active right now. I don't have any other insurance either."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Do you currently have any other health insurance — through work, school, Kaiser, TriCare, Covered California, or a private plan?"
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "No, I don't have any other insurance. I'm still living in San Diego County and I still have that yellow packet here with me."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "Do you still live in San Diego County?"
+        },
+        {
+          "turn": 3,
+          "role": "caller",
+          "text": "Yeah, I'm still in San Diego County. Definitely need some help getting this sorted out—can we just finish that yellow packet over the phone right now?"
+        },
+        {
+          "turn": 3,
+          "role": "agent",
+          "text": "Did you receive the yellow renewal packet from the county — and do you still have it?"
+        },
+        {
+          "turn": 4,
+          "role": "caller",
+          "text": "Yeah, I still have it right here in front of me. Can we just go ahead and finish it over the phone now? [GOAL_ACHIEVED]"
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "text": "Since you still have the county's packet, you've got two options: I can help you complete your renewal right now over the phone, or set up an in-person appointment with Family Health Centers of San Diego to go through the packet with you. Which would you prefer?"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_08",
+      "episode_id": "850da6f7-f14e-4f86-84f3-2b87ceacaff7",
+      "session_id": "fhcsd_tr_20260701_195524_071_d411e2",
+      "num_turns": 5,
+      "started_at": "2026-07-01T19:57:28.251275+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yes, I definitely want help with that. I'm still living in San Diego County, but I haven't seen a yellow packet come in the mail at all."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage?"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "No, it’s not active right now. I don't have any other insurance either, so I’m really hoping to get this sorted out with you."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Do you currently have any other health insurance — through work, school, Kaiser, TriCare, Covered California, or a private plan?"
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "No, I don't have any other insurance at all."
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "Do you still live in San Diego County?"
+        },
+        {
+          "turn": 3,
+          "role": "caller",
+          "text": "Yeah, I still live here in San Diego. I've been waiting for that yellow renewal packet to come in the mail, but I honestly never received it."
+        },
+        {
+          "turn": 3,
+          "role": "agent",
+          "text": "Did you receive the yellow renewal packet from the county — and do you still have it?"
+        },
+        {
+          "turn": 4,
+          "role": "caller",
+          "text": "No, like I said, I never got it in the mail. I definitely need some help getting this renewed so I don't lose my coverage."
+        },
+        {
+          "turn": 4,
+          "role": "agent",
+          "text": "No problem — let's get your renewal started. Thank you for your time, and goodbye!"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_09",
+      "episode_id": "d4a36dd3-7e6c-431e-abf5-52f7ef7082f4",
+      "session_id": "fhcsd_tr_20260701_195707_662_ad10e7",
+      "num_turns": 3,
+      "started_at": "2026-07-01T19:57:53.610753+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone? \n\n(Waiting for your answer.)"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yeah, I'd really like some help with that. Actually, my Medi-Cal isn't active right now, and I'm currently covered through Kaiser Permanente."
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage? \n\n(Waiting for your answer.)"
+        },
+        {
+          "turn": 1,
+          "role": "caller",
+          "text": "No, it’s definitely not active, but I do have Kaiser Permanente insurance right now."
+        },
+        {
+          "turn": 1,
+          "role": "agent",
+          "text": "Do you currently have any other health insurance — through work, school, Kaiser, TriCare, Covered California, or a private plan?\n\n(Waiting for your answer.)"
+        },
+        {
+          "turn": 2,
+          "role": "caller",
+          "text": "Yeah, like I said, I'm covered by Kaiser Permanente. That’s the only other insurance I have. [GOAL_ACHIEVED]"
+        },
+        {
+          "turn": 2,
+          "role": "agent",
+          "text": "Got it, thanks — since you're already covered, there's nothing you need to do for Medi-Cal right now; just so we have it on file.\n\nWhich plan is that? \n\n(Waiting for your answer.)"
+        }
+      ]
+    },
+    {
+      "thread_id": "thread_10",
+      "episode_id": "80fa4cdc-95c0-4459-bf5a-e6805cf0f23a",
+      "session_id": "fhcsd_tr_20260701_195704_290_cdd9aa",
+      "num_turns": 1,
+      "started_at": "2026-07-01T19:57:30.947807+00:00",
+      "messages": [
+        {
+          "turn": -1,
+          "role": "agent",
+          "text": "First — would you like our help renewing your Medi-Cal right now, over the phone?"
+        },
+        {
+          "turn": 0,
+          "role": "caller",
+          "text": "Yes, I'd definitely like your help with that. I’m not currently active, I don't have any other insurance, and I'm still in San Diego County. I have the yellow packet right here, so let's do this over the phone now. [GOAL_ACHIEVED]"
+        },
+        {
+          "turn": 0,
+          "role": "agent",
+          "text": "Our records show your Medi-Cal may not be active right now. Can you confirm — do you currently have active Medi-Cal coverage? \n\n(Waiting for your response.)"
+        }
+      ]
+    }
+  ]
+}
