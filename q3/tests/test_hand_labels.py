@@ -61,7 +61,7 @@ def test_agreement_table(spec, threads):
 
 def test_agreement_without_judgments_says_so(spec, threads):
     text = render_agreement(agreement(spec, threads, NoJudge()), list(spec.items), "model judge")
-    assert "No model judgments available" in text and "--live" in text
+    assert "No model judgments available" in text and "--agreement" in text
     assert max(len(ln) for ln in text.splitlines()) <= 120
 
 
@@ -77,10 +77,8 @@ def test_cli_labels_hand_header(capsys):
 
 
 def test_cli_agreement_no_cache(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(
-        cli, "default_judge", lambda live=False: CachedJudge(None, model="m", path=tmp_path / "missing.json")
-    )
-    assert cli.main(["--agreement"]) == 0
+    monkeypatch.setattr(cli, "cached_judge", lambda: CachedJudge(None, model="m", path=tmp_path / "missing.json"))
+    assert cli.main(["--agreement", "--cached"]) == 0
     out = capsys.readouterr().out
     assert "model judge (cache, model m)" in out and "No model judgments available" in out
 

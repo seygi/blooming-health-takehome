@@ -82,7 +82,7 @@ def test_judge_unavailable(spec, threads):
     assert checks_of(findings) == ["routing.judge_unavailable"]
     f = findings[0]
     assert (f.severity, f.gate, f.owner, f.uncertain) == ("major", "correct_routing", "harness", True)
-    assert "ANTHROPIC_API_KEY" in f.fix_hint and "--live" in f.fix_hint and "judgments.json" in f.fix_hint
+    assert "ANTHROPIC_API_KEY" in f.fix_hint and "--cached" in f.fix_hint and "judgments.json" in f.fix_hint
     assert result.expected_terminal is None and result.actual_terminal == "medi_cal_active"
 
 

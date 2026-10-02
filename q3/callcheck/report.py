@@ -73,7 +73,8 @@ def judge_detail(judgment) -> str:
     if judgment is None or judgment.source not in ("cache", "live"):
         return ""
     via = f" via {judgment.transport}" if judgment.transport else ""
-    return f"{judgment.model}{via}, prompt {judgment.prompt_version}"
+    replay = "replay of committed run: " if judgment.source == "cache" else ""
+    return f"{replay}{judgment.model}{via}, prompt {judgment.prompt_version}"
 
 
 # ---------------------------------------------------------------------------
@@ -312,8 +313,8 @@ def render_agreement(rows: list, item_ids: list[str], judge_desc: str) -> str:
     if not judged:
         lines += _wrap("No model judgments available: no cache entry for any thread in q3/cache/judgments.json "
                        "and no usable live backend.", "  ", "")
-        lines += _wrap("Create them with ANTHROPIC_API_KEY set (uv run callcheck --live) or through the Claude "
-                       "Code CLI (CALLCHECK_BACKEND=claude-cli uv run callcheck --live)", "  ", "")
+        lines += _wrap("Create them with ANTHROPIC_API_KEY set (uv run callcheck --agreement) or through the "
+                       "Claude Code CLI (CALLCHECK_BACKEND=claude-cli uv run callcheck --agreement)", "  ", "")
         return "\n".join(ascii_text(ln) for ln in lines) + "\n"
     lines.append(f"{'thread':<10}  {'all items':<12}  {'on path':<12}  {'terminal':<9}  disagreements")
     lines.append("-" * 96)

@@ -482,14 +482,15 @@ def test_claude_judge_refusal_returns_none(spec, threads):
     assert J.ClaudeJudge("m", client=client).judge(spec, _thread(threads, "thread_01")) is None
 
 
-def test_claude_judge_bad_key_returns_none_and_disables(spec, threads, tmp_path):
+def test_claude_judge_bad_key_raises_and_disables(spec, threads, tmp_path):
     import anthropic
 
     httpx = pytest.importorskip("httpx2")
     req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     err = anthropic.AuthenticationError("bad key", response=httpx.Response(401, request=req), body=None)
     judge = J.ClaudeJudge("m", client=_Client([err]))
-    assert judge.judge(spec, _thread(threads, "thread_01")) is None
+    with pytest.raises(J.JudgeAuthError):
+        judge.judge(spec, _thread(threads, "thread_01"))
     assert judge.available is False
     path = tmp_path / "judgments.json"
     assert CachedJudge(judge, model="m", path=path).judge(spec, _thread(threads, "thread_02")) is None

@@ -86,7 +86,7 @@ def _unavailable() -> Finding:
             "The caller's answers could not be labelled, so the expected terminal is unknown and routing "
             "cannot be confirmed."
         ),
-        fix_hint="Set ANTHROPIC_API_KEY and run with --live, or restore q3/cache/judgments.json.",
+        fix_hint="Set ANTHROPIC_API_KEY and run without --cached, or restore q3/cache/judgments.json.",
         owner="harness",
         uncertain=True,
     )
