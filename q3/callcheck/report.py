@@ -291,6 +291,45 @@ def render_text(reports: list[ThreadReport], policy_note: str | None = None) -> 
     return "\n".join(ascii_text(line) for line in lines) + "\n"
 
 
+def _ratio(n: int, d: int) -> str:
+    return f"{n}/{d}" + (f" ({100 * n / d:.0f}%)" if d else "")
+
+
+def render_agreement(rows: list, item_ids: list[str], judge_desc: str) -> str:
+    """Agreement table: model judge answers vs the author's hand labels (neither is ground truth)."""
+    lines = [f"callcheck agreement: {judge_desc} vs hand labels (the author's own reading, not ground truth)", ""]
+    judged = [r for r in rows if r.judged]
+    if not judged:
+        lines.append("No model judgments available: no cache entry for any thread in q3/cache/judgments.json and "
+                     "no working ANTHROPIC_API_KEY.")
+        lines.append("Create them with ANTHROPIC_API_KEY set: uv run callcheck --live")
+        return "\n".join(ascii_text(ln) for ln in lines) + "\n"
+    lines.append(f"{'thread':<10}  {'all items':<12}  {'on path':<12}  {'terminal':<9}  disagreements")
+    lines.append("-" * 96)
+    for r in rows:
+        if not r.judged:
+            lines.append(f"{r.thread_id:<10}  no cache entry")
+            continue
+        term = "same" if r.terminal_hand == r.terminal_judge else "DIFF"
+        lead = (f"{r.thread_id:<10}  {r.matched}/{r.total:<10}  {r.path_matched}/{r.path_total:<10}  "
+                f"{term:<9}  ")
+        lines += _wrap("; ".join(r.disagreements) or "none", " " * len(lead), lead)
+    lines.append("")
+    lines.append(f"{'item':<14}  agree (exact answer match, judged threads)")
+    for item_id in item_ids:
+        agree = sum(1 for r in judged if not any(d.startswith(item_id + ":") for d in r.disagreements))
+        lines.append(f"{item_id:<14}  {_ratio(agree, len(judged))}")
+    lines.append("")
+    m, t = sum(r.matched for r in judged), sum(r.total for r in judged)
+    pm, pt = sum(r.path_matched for r in judged), sum(r.path_total for r in judged)
+    same = sum(1 for r in judged if r.terminal_hand == r.terminal_judge)
+    lines += _wrap(f"TOTAL {len(judged)} judged thread(s), {len(rows) - len(judged)} without a judgment. "
+                   f"All items {_ratio(m, t)}. On the expected path {_ratio(pm, pt)}. "
+                   f"Expected terminal {_ratio(same, len(judged))}.", "  ", "")
+    lines.append("on path = items on the expected path under the hand labels; those decide routing.")
+    return "\n".join(ascii_text(ln) for ln in lines) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # JSON
 # ---------------------------------------------------------------------------

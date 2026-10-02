@@ -1,7 +1,7 @@
 """Command line entry point.
 
     uv run callcheck [path] [--thread ID] [--live] [--json] [--out FILE] [--captured FILE]
-                     [--speech-policy gate|soft]
+                     [--speech-policy gate|soft] [--labels judge|hand] [--agreement]
 
 Each thread gets a task outcome verdict (routing, answers, termination) and a release verdict (outcome
 plus clean speech under the speech policy). Exit codes follow the release verdict: 0 all PASS, 1 any
@@ -15,9 +15,10 @@ import json
 import sys
 from pathlib import Path
 
+from callcheck.hand_labels import agreement, hand_judge
 from callcheck.judge import default_judge
 from callcheck.load import load, load_min_confidence, load_transport_mode
-from callcheck.report import DEFAULT_JSON, evaluate, exit_code, render_text, write_json
+from callcheck.report import DEFAULT_JSON, evaluate, exit_code, render_agreement, render_text, write_json
 from callcheck.routing import MIN_CONFIDENCE
 from callcheck.verdict import SPEECH_POLICIES
 
@@ -43,6 +44,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         choices=SPEECH_POLICIES,
         help="gate: a speech leak blocks release; soft: it is a release warning. Default: gate when "
         "agent_config.transport_mode is voice, else soft",
+    )
+    p.add_argument(
+        "--labels",
+        choices=("judge", "hand"),
+        default="judge",
+        help="judge: model judgments (cache, or live with a key); hand: the author's own labels from "
+        "callcheck.hand_labels, NOT model output, to show routing without an API key",
+    )
+    p.add_argument(
+        "--agreement",
+        action="store_true",
+        help="print how often the model judge's answers match the hand labels, per item and per thread",
     )
     return p.parse_args(argv)
 
@@ -85,8 +98,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"callcheck: no thread with id {args.thread}", file=sys.stderr)
             return USAGE_ERROR
 
-    judge = default_judge(live=args.live)
-    reports = [evaluate(spec, t, judge, captured.get(t.thread_id), min_conf, policy) for t in threads]
+    if args.agreement:
+        if args.labels == "hand":
+            print("callcheck: --agreement compares the model judge with the hand labels; drop --labels hand",
+                  file=sys.stderr)
+            return USAGE_ERROR
+        judge = default_judge(live=args.live)
+        desc = f"model judge ({'live' if args.live else 'cache'}, model {getattr(judge, 'model', '?')})"
+        sys.stdout.write(render_agreement(agreement(spec, threads, judge), list(spec.items), desc))
+        return 0
+
+    judge = hand_judge() if args.labels == "hand" else default_judge(live=args.live)
+    reports =[evaluate(spec, t, judge, captured.get(t.thread_id), min_conf, policy) for t in threads]
 
     if args.json:
         print(_display(write_json(reports, args.out)))

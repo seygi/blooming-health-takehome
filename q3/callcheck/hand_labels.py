@@ -15,9 +15,12 @@ The report header always says when these labels are the judge source ("hand").
 from __future__ import annotations
 
 import dataclasses
+from dataclasses import dataclass, field
 
-from callcheck.judge import FakeJudge, ItemJudgment, Judgment
+from callcheck.judge import NOT_DISCUSSED, FakeJudge, ItemJudgment, Judge, Judgment
 from callcheck.model import FlowSpec, Thread
+from callcheck.routing import capture_only
+from callcheck.spec import walk
 
 HAND_SOURCE = "hand"
 
@@ -118,3 +121,71 @@ class HandJudge:
 
 def hand_judge() -> HandJudge:
     return HandJudge()
+
+
+# ---------------------------------------------------------------------------
+# Agreement: model judge vs hand labels
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ThreadAgreement:
+    thread_id: str
+    judged: bool  # False when the judge had no answer for this thread (no cache entry, no live call)
+    total: int = 0
+    matched: int = 0
+    path_total: int = 0  # items on the expected path under the hand labels
+    path_matched: int = 0
+    terminal_hand: str | None = None
+    terminal_judge: str | None = None
+    disagreements: list[str] = field(default_factory=list)  # "item: judge X, hand Y"
+
+
+def _answer(j: dict[str, ItemJudgment], item_id: str) -> str:
+    ij = j.get(item_id)
+    return ij.answer if ij is not None else NOT_DISCUSSED
+
+
+def _expected(spec: FlowSpec, items: dict[str, ItemJudgment]) -> tuple[list[str], str | None]:
+    answers: dict[str, str] = {}
+    for item_id, item in spec.items.items():
+        answer = _answer(items, item_id)
+        if capture_only(item):
+            answers[item_id] = item.question.scenarios[0].id
+        elif answer != NOT_DISCUSSED:
+            answers[item_id] = answer
+    path = walk(spec, answers)
+    return [p for p in path.items if p in spec.items], path.terminal
+
+
+def agreement(
+    spec: FlowSpec, threads: list[Thread], judge: Judge, labels: dict[str, dict[str, ItemJudgment]] | None = None
+) -> list[ThreadAgreement]:
+    """Per thread: exact answer match on every item, and on the items of the hand labelled expected path."""
+    labels = HAND_LABELS if labels is None else labels
+    hand = HandJudge(labels)
+    out: list[ThreadAgreement] = []
+    for thread in threads:
+        h = hand.judge(spec, thread)
+        if h is None:
+            continue
+        j = judge.judge(spec, thread)
+        if j is None:
+            out.append(ThreadAgreement(thread.thread_id, judged=False))
+            continue
+        path, terminal_hand = _expected(spec, h.items)
+        _jpath, terminal_judge = _expected(spec, j.items)
+        a = ThreadAgreement(thread.thread_id, judged=True, terminal_hand=terminal_hand,
+                            terminal_judge=terminal_judge)
+        for item_id in spec.items:
+            ja, ha = _answer(j.items, item_id), _answer(h.items, item_id)
+            same = ja == ha
+            a.total += 1
+            a.matched += same
+            if item_id in path:
+                a.path_total += 1
+                a.path_matched += same
+            if not same:
+                a.disagreements.append(f"{item_id}: judge {ja}, hand {ha}")
+        out.append(a)
+    return out
