@@ -28,7 +28,7 @@ def test_fires_on_leaky_threads(spec, threads, thread_id):
         assert f.gate == "clean_speech"
         assert f.severity == "major"
         assert f.owner == "prompt"
-        assert "TTS" in f.fix_hint
+        assert "speech to speech" in f.fix_hint
 
 
 @pytest.mark.parametrize("thread_id", ["thread_01", "thread_08"])

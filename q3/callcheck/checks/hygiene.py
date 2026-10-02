@@ -21,8 +21,9 @@ class _Pattern:
     fix_hint: str
 
 
-_TTS_NOTE = (
-    "In voice these lines are spoken by TTS. "
+_S2S_NOTE = (
+    "GPT Realtime is speech to speech: there is no text stage to filter before audio, so the "
+    "model would say this aloud. Fix it at the source and gate releases on this check. "
     "It may be text simulation scaffolding: verify it does not occur in voice mode."
 )
 
@@ -33,8 +34,8 @@ PATTERNS = [
         regex=re.compile(r"^[ \t]*\([^()\n]+\)[ \t]*$", re.MULTILINE),
         problem="Agent speech contains a standalone parenthetical stage direction.",
         fix_hint=(
-            "Strip standalone parenthetical lines in the output text filter before TTS and remove "
-            "the 'wait for response' instruction from the prompt template. " + _TTS_NOTE
+            "Find the template or engine step that appends '(Waiting for your response.)' style "
+            "lines to agent turns and remove it; add an instruction never to narrate turn taking. " + _S2S_NOTE
         ),
     ),
     _Pattern(
@@ -42,8 +43,8 @@ PATTERNS = [
         regex=re.compile(r"\b(?:this|that) (?:was|is) the final message of this follow[ -]?up\b[.!]?", re.I),
         problem="Agent speech contains system or meta text about the follow up itself.",
         fix_hint=(
-            "Remove the 'final message of this follow-up' line from the prompt template and block "
-            "it in the output text filter before TTS. " + _TTS_NOTE
+            "Remove the 'final message of this follow-up' line from the prompt template or engine "
+            "closing step; the outcome say is the whole closing. " + _S2S_NOTE
         ),
     ),
     _Pattern(
@@ -51,8 +52,8 @@ PATTERNS = [
         regex=re.compile(r"\[[A-Z][A-Z_]{3,}\]"),
         problem="Agent speech contains a bracketed simulator or control marker.",
         fix_hint=(
-            "Strip bracketed control markers in the output text filter before TTS and keep simulator "
-            "markers out of the agent context. " + _TTS_NOTE
+            "Keep simulator and control markers out of the agent context so the model cannot echo "
+            "them. " + _S2S_NOTE
         ),
     ),
     _Pattern(
@@ -63,8 +64,7 @@ PATTERNS = [
         ),
         problem="Agent speech contains markdown formatting.",
         fix_hint=(
-            "Instruct the prompt to answer in plain spoken sentences and strip markdown in the output "
-            "text filter before TTS. " + _TTS_NOTE
+            "Instruct the prompt to answer in plain spoken sentences, no formatting. " + _S2S_NOTE
         ),
     ),
 ]
