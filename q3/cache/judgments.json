@@ -1,0 +1,904 @@
+{
+  "entries": {
+    "07ab7b4f7fb5115bd998ac02cf9ca83cd2feadffc99754940f4aee80a1f2a32e": {
+      "thread_id": "thread_01",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.95,
+          "evidence": "Yes, please. I really need help getting that taken care of today.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yes, please."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "active",
+          "confidence": 0.95,
+          "evidence": "I definitely have active coverage right now",
+          "evidence_turn": 1,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "I definitely have active coverage right now"
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "1c19fac257a72114c544f94e0218a2d3612f30eaea85560c1db1ffff3302f4d8": {
+      "thread_id": "thread_02",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.97,
+          "evidence": "Yes, please, I definitely need help with that.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yes, please, I definitely need help with that."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "inactive",
+          "confidence": 0.92,
+          "evidence": "No, I don't think it's active right now, which is why I’m calling.",
+          "evidence_turn": 1,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "No, I don't think it's active right now, which is why I’m calling."
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "false",
+          "confidence": 0.97,
+          "evidence": "No, I don't have any other insurance at all.",
+          "evidence_turn": 2,
+          "first_available_turn": 2,
+          "value": null,
+          "first_available_quote": "No, I don't have any other insurance at all."
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.97,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "true",
+          "confidence": 0.96,
+          "evidence": "Yeah, I still live here in San Diego.",
+          "evidence_turn": 3,
+          "first_available_turn": 3,
+          "value": null,
+          "first_available_quote": "Yeah, I still live here in San Diego."
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "no_or_lost",
+          "confidence": 0.96,
+          "evidence": "No, I never actually got it in the mail, so I don't have it.",
+          "evidence_turn": 4,
+          "first_available_turn": 3,
+          "value": null,
+          "first_available_quote": "I never actually got that yellow renewal packet in the mail."
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "not_discussed",
+          "confidence": 0.9,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.97,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "f362dad901f36d88c26df9e97a0c51fcdc904d20490e6e6be188b730de6e555c": {
+      "thread_id": "thread_03",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.95,
+          "evidence": "Yeah, I’d definitely like some help with that.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yeah, I’d definitely like some help with that."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "inactive",
+          "confidence": 0.95,
+          "evidence": "My Medi-Cal isn’t active right now",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "My Medi-Cal isn’t active right now"
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "false",
+          "confidence": 0.95,
+          "evidence": "I don't have any other insurance",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I don't have any other insurance"
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "false",
+          "confidence": 0.95,
+          "evidence": "No, I actually moved out of the county, so I'm not in San Diego anymore.",
+          "evidence_turn": 3,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "I moved out of San Diego County to a different county recently."
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "b5cca81a4c899000695a23b6cc21ae41f81103401be558c7d6379e3b32797d7a": {
+      "thread_id": "thread_04",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.97,
+          "evidence": "Yes, please, I’d really appreciate your help getting that renewed over the phone.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yes, please, I’d really appreciate your help getting that renewed over the phone."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "active",
+          "confidence": 0.97,
+          "evidence": "Yes, I’m 100% sure it’s active; I just used it for an appointment last week.",
+          "evidence_turn": 2,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "I'm definitely still covered, I use it for my regular doctor visits all the time."
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "not_discussed",
+          "confidence": 0.9,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.92,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "not_discussed",
+          "confidence": 0.9,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "not_discussed",
+          "confidence": 0.9,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "not_discussed",
+          "confidence": 0.88,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "69f2683620601340f08b8d4dbed59eca972f632ca0e4f3256f1a4bae022af648": {
+      "thread_id": "thread_05",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.93,
+          "evidence": "Yeah, I’d definitely like some help with that.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yeah, I’d definitely like some help with that."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "inactive",
+          "confidence": 0.96,
+          "evidence": "No, it's not active right now.",
+          "evidence_turn": 1,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "No, it's not active right now."
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "false",
+          "confidence": 0.96,
+          "evidence": "No, I don't have any other insurance at all.",
+          "evidence_turn": 2,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "I don't have any other insurance either."
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.97,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "true",
+          "confidence": 0.96,
+          "evidence": "Yeah, I still live here in San Diego.",
+          "evidence_turn": 3,
+          "first_available_turn": 3,
+          "value": null,
+          "first_available_quote": "Yeah, I still live here in San Diego."
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "still_has",
+          "confidence": 0.96,
+          "evidence": "Yeah, I got it, and I still have it—I haven't sent it in yet.",
+          "evidence_turn": 4,
+          "first_available_turn": 4,
+          "value": null,
+          "first_available_quote": "I got it, and I still have it—I haven't sent it in yet."
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "in_person",
+          "confidence": 0.96,
+          "evidence": "I’d definitely prefer to come in for an in-person appointment so I can go through it with someone.",
+          "evidence_turn": 5,
+          "first_available_turn": 5,
+          "value": null,
+          "first_available_quote": "I’d definitely prefer to come in for an in-person appointment"
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.98,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "5ec7934635ed66d104d702a9ba4a82ad73d823bade3d629b00d093322ce4fff1": {
+      "thread_id": "thread_06",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "not_interested",
+          "confidence": 0.96,
+          "evidence": "I'm not interested in renewing over the phone right now.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I'm not interested in renewing over the phone right now."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "not_discussed",
+          "confidence": 0.9,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "not_discussed",
+          "confidence": 0.92,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "false",
+          "confidence": 0.95,
+          "evidence": "I actually moved out of San Diego County recently",
+          "evidence_turn": 1,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "I actually moved out of San Diego County recently"
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "not_discussed",
+          "confidence": 0.92,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "reveals_out_of_county",
+          "confidence": 0.96,
+          "evidence": "I actually moved out of San Diego County recently, so I don't need the help here anymore.",
+          "evidence_turn": 1,
+          "first_available_turn": 1,
+          "value": "Moved out of San Diego County recently, doesn't need help here anymore",
+          "first_available_quote": "I actually moved out of San Diego County recently"
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "6bac543cf89e3783ed8dbc5f7a40445b49f64fc9db440ca88613e789218f0820": {
+      "thread_id": "thread_07",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.95,
+          "evidence": "Yes, I'd really appreciate your help with that.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yes, I'd really appreciate your help with that."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "inactive",
+          "confidence": 0.95,
+          "evidence": "No, it’s not active right now.",
+          "evidence_turn": 1,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "No, it’s not active right now."
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "false",
+          "confidence": 0.95,
+          "evidence": "No, I don't have any other insurance.",
+          "evidence_turn": 2,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "I don't have any other insurance either."
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "true",
+          "confidence": 0.95,
+          "evidence": "Yeah, I'm still in San Diego County.",
+          "evidence_turn": 3,
+          "first_available_turn": 2,
+          "value": null,
+          "first_available_quote": "I'm still living in San Diego County"
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "still_has",
+          "confidence": 0.95,
+          "evidence": "Yeah, I still have it right here in front of me.",
+          "evidence_turn": 4,
+          "first_available_turn": 2,
+          "value": null,
+          "first_available_quote": "I still have that yellow packet here with me."
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "by_phone",
+          "confidence": 0.85,
+          "evidence": "Can we just go ahead and finish it over the phone now?",
+          "evidence_turn": 4,
+          "first_available_turn": 3,
+          "value": null,
+          "first_available_quote": "can we just finish that yellow packet over the phone right now?"
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.97,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "ee3e298ffcc5b0c332a31f537307d7b781b84ac4d87e8655ec49e4103921a743": {
+      "thread_id": "thread_08",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.97,
+          "evidence": "Yes, I definitely want help with that.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yes, I definitely want help with that."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "inactive",
+          "confidence": 0.97,
+          "evidence": "No, it’s not active right now.",
+          "evidence_turn": 1,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "No, it’s not active right now."
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "false",
+          "confidence": 0.97,
+          "evidence": "No, I don't have any other insurance at all.",
+          "evidence_turn": 2,
+          "first_available_turn": 1,
+          "value": null,
+          "first_available_quote": "I don't have any other insurance either"
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.97,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "true",
+          "confidence": 0.97,
+          "evidence": "Yeah, I still live here in San Diego.",
+          "evidence_turn": 3,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I'm still living in San Diego County"
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "no_or_lost",
+          "confidence": 0.97,
+          "evidence": "No, like I said, I never got it in the mail.",
+          "evidence_turn": 4,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I haven't seen a yellow packet come in the mail at all"
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.98,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "800e942e3a4098c5834b0d4cd0fe819e0cb7fd552a5b9ab0b47ef8b0fe98adfe": {
+      "thread_id": "thread_09",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.95,
+          "evidence": "Yeah, I'd really like some help with that.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yeah, I'd really like some help with that."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "inactive",
+          "confidence": 0.96,
+          "evidence": "No, it’s definitely not active",
+          "evidence_turn": 1,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "my Medi-Cal isn't active right now"
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "true",
+          "confidence": 0.96,
+          "evidence": "I'm covered by Kaiser Permanente. That’s the only other insurance I have.",
+          "evidence_turn": 2,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I'm currently covered through Kaiser Permanente."
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "__close__",
+          "confidence": 0.96,
+          "evidence": "I'm covered by Kaiser Permanente.",
+          "evidence_turn": 2,
+          "first_available_turn": 0,
+          "value": "Kaiser Permanente",
+          "first_available_quote": "I'm currently covered through Kaiser Permanente."
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    },
+    "44045c5ffb92f6eb74d3a9018a87462fb65291a757132171a073bc91e0893d45": {
+      "thread_id": "thread_10",
+      "model_requested": "claude-sonnet-5-5",
+      "model": "claude-sonnet-5-5",
+      "prompt_version": "v2",
+      "items": {
+        "q1_intent": {
+          "item_id": "q1_intent",
+          "answer": "yes",
+          "confidence": 0.97,
+          "evidence": "Yes, I'd definitely like your help with that.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "Yes, I'd definitely like your help with that."
+        },
+        "q2_active": {
+          "item_id": "q2_active",
+          "answer": "inactive",
+          "confidence": 0.95,
+          "evidence": "I’m not currently active",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I’m not currently active"
+        },
+        "q3_coverage": {
+          "item_id": "q3_coverage",
+          "answer": "false",
+          "confidence": 0.95,
+          "evidence": "I don't have any other insurance",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I don't have any other insurance"
+        },
+        "q3_plan": {
+          "item_id": "q3_plan",
+          "answer": "not_discussed",
+          "confidence": 0.95,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        },
+        "q4_residency": {
+          "item_id": "q4_residency",
+          "answer": "true",
+          "confidence": 0.96,
+          "evidence": "I'm still in San Diego County",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I'm still in San Diego County"
+        },
+        "q5_packet": {
+          "item_id": "q5_packet",
+          "answer": "still_has",
+          "confidence": 0.93,
+          "evidence": "I have the yellow packet right here",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "I have the yellow packet right here"
+        },
+        "q5_choice": {
+          "item_id": "q5_choice",
+          "answer": "by_phone",
+          "confidence": 0.82,
+          "evidence": "I have the yellow packet right here, so let's do this over the phone now.",
+          "evidence_turn": 0,
+          "first_available_turn": 0,
+          "value": null,
+          "first_available_quote": "so let's do this over the phone now"
+        },
+        "decline": {
+          "item_id": "decline",
+          "answer": "not_discussed",
+          "confidence": 0.97,
+          "evidence": "",
+          "evidence_turn": null,
+          "first_available_turn": null,
+          "value": null,
+          "first_available_quote": ""
+        }
+      },
+      "notes": [],
+      "transport": "claude-cli"
+    }
+  }
+}

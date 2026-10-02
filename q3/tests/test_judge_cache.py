@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from callcheck import judge as J
 from callcheck.judge import CACHE_PATH, CachedJudge, Judgment, answer_enum
 
@@ -13,14 +11,13 @@ class _Boom:
         raise AssertionError("inner judge called")
 
 
-# INCOMPLETE marker: the cache could not be populated because the API key in the
-# environment was rejected (401). Remove this skip once `uv run python -m callcheck.judge`
-# has written q3/cache/judgments.json with a valid key.
-@pytest.mark.skipif(not CACHE_PATH.exists(), reason="q3/cache/judgments.json not populated yet (needs a valid ANTHROPIC_API_KEY)")
 def test_committed_cache_covers_all_threads(spec, threads):
+    assert CACHE_PATH.exists(), "q3/cache/judgments.json must be committed"
     entries = json.loads(CACHE_PATH.read_text())["entries"]
     models = {e["model_requested"] for e in entries.values()}
-    assert len(models) == 1
+    assert models == {J.DEFAULT_MODEL}
+    assert len(threads) == 10
+    assert {e["transport"] for e in entries.values()} <= {"api", "claude-cli"}
     cj = CachedJudge(_Boom(), model=models.pop())
     for t in threads:
         j = cj.judge(spec, t)
