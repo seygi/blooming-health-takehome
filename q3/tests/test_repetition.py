@@ -73,6 +73,44 @@ def test_volunteered_before_asked_thread_03(spec, threads):
     assert all(f.gate is None and f.severity == "minor" and f.owner == "prompt" for f in findings)
 
 
+def test_volunteered_prints_first_available_quote_not_evidence(spec, threads):
+    # thread_07: caller asks to finish the packet by phone at C3; q5_choice is offered at A4.
+    # The evidence quote is from C4, so it must not be shown as the C3 quote.
+    item = SimpleNamespace(
+        answer="by_phone",
+        confidence=0.8,
+        evidence="Can we just go ahead and finish it over the phone now?",
+        evidence_turn=4,
+        first_available_turn=3,
+        first_available_quote="can we just finish that yellow packet over the phone right now?",
+        value=None,
+    )
+    ctx = Context(spec=spec, thread=by_id(threads, "thread_07"), judgment=SimpleNamespace(items={"q5_choice": item}))
+    [f] = [f for f in check(ctx) if f.check == "repetition.asked_after_volunteered"]
+    assert f.turn == 4
+    assert '"can we just finish that yellow packet over the phone right now?"' in f.evidence
+    assert "go ahead and finish it" not in f.evidence
+
+
+def test_volunteered_without_quote_prints_no_quote(spec, threads):
+    item = SimpleNamespace(
+        answer="by_phone",
+        confidence=0.8,
+        evidence="Can we just go ahead and finish it over the phone now?",
+        evidence_turn=4,
+        first_available_turn=3,
+        first_available_quote="",
+        value=None,
+    )
+    ctx = Context(spec=spec, thread=by_id(threads, "thread_07"), judgment=SimpleNamespace(items={"q5_choice": item}))
+    [f] = [f for f in check(ctx) if f.check == "repetition.asked_after_volunteered"]
+    assert f.evidence == "q5_choice asked at turn 4; caller gave it at turn 3"
+    # objects from older code without the attribute behave the same way
+    del item.first_available_quote
+    [g] = [g for g in check(ctx) if g.check == "repetition.asked_after_volunteered"]
+    assert g.evidence == f.evidence
+
+
 def test_not_volunteered_when_answer_came_after_question(spec, threads):
     ctx = Context(
         spec=spec,

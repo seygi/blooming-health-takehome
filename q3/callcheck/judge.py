@@ -11,9 +11,10 @@ Why a model at all
     routing code consumes.
 
 Prompt design decisions
-    1. Caller statements only. The agent's own words are never evidence. The thing
-       we are evaluating is the agent, so letting the judge read the agent's
-       assumptions ("it sounds like there's nothing you need to do") would let a
+    1. Facts from caller words only. Agent lines are read only to know which
+       question a caller line answers (a bare "no" means nothing without it). The
+       thing we are evaluating is the agent, so treating the agent's assumptions
+       ("it sounds like there's nothing you need to do") as evidence would let a
        wrong agent grade itself as right.
     2. Every item, every thread, independent of the path the agent took. The judge
        labels all 8 items even if the agent never asked them. Routing code then
@@ -29,18 +30,33 @@ Prompt design decisions
        verdict can say NEEDS_REVIEW instead of guessing. A scenario that itself
        covers uncertainty (q2 "inactive" means "not active, or unsure") wins over
        "unclear", because the script already decided where unsure callers go.
-    5. One utterance, one item, unless the words address both. A plain "yes" to
-       the opening offer answers q1 only; it is not read as a phone preference for
-       q5_choice. This stops the model from double counting generic agreement.
+    5. One utterance, one item, unless the words address both. The opener already
+       says "over the phone", so agreeing to it answers q1 only; it is not a
+       q5_choice answer because the in person option was never offered. A caller
+       who ties "over the phone" to completing the packet they have (threads 07
+       C3, 10 C0) did state a q5_choice preference, volunteered, at moderate
+       confidence. A worked example in the prompt shows both cases.
+    5b. Corrections: the corrected answer wins and first_available_turn points at
+       the correction, so a superseded answer never makes a later question look
+       like a re-ask.
     6. Calibrated confidence bands are spelled out (0.9+ only for explicit,
        unambiguous statements) so the verdict can threshold on them.
     7. Placeholder scenarios (ids like "__close__") get a rendered meaning ("caller
        named the plan") instead of the engine's internal note, and the captured
        plan goes into `value`, normalized to one of the scripted options.
     8. Structure: system prompt holds the rules; the user turn holds the items
-       (question text, scenario id, meaning) and the transcript as numbered
-       `[turn] ROLE: text` lines. In the tool schema `evidence` comes before
+       (question text, scenario id, meaning) and the transcript as
+       `[C3] CALLER: text` / `[A3] AGENT: text` lines (`[A-open]` for the opener,
+       continuation lines indented). Distinct C and A ids make an agent turn
+       impossible to cite as caller evidence: the schema's turn fields are an enum
+       of this thread's caller ids. In the tool schema `evidence` comes before
        `answer`, so the model commits to a verbatim quote before picking a label.
+    9. first_available_quote is a verbatim quote from the first available turn, so
+       the re-ask finding can show what the caller said at that turn (the evidence
+       quote may come from a later turn).
+   10. The cache key hashes the system prompt, the tool schema and the rendered
+       user message, so any prompt edit misses the cache even if PROMPT_VERSION
+       (kept as a label) was not bumped.
 
 API notes (logged in docs/decisions-log.md)
     claude-sonnet-5-5 rejects forced tool_choice ("any"/"tool") and non default
@@ -52,7 +68,9 @@ API notes (logged in docs/decisions-log.md)
 Validation
     The tool input is validated in code: unknown item ids are dropped, missing
     items or answers outside the enum become "unclear" with confidence 0 and a
-    note, turns that are not caller turns become None, confidence is clamped.
+    note, turn ids that are not caller turns of the thread become None with a
+    note, a first_available_quote not found in its turn is blanked with a note,
+    confidence is clamped. Notes land on Judgment.notes and in the cache.
     Nothing here raises on malformed model output.
 """
 
@@ -62,13 +80,14 @@ import hashlib
 import json
 import os
 import sys
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from callcheck.model import FlowSpec, Item, Scenario, Thread
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 DEFAULT_MODEL = "claude-sonnet-5-5"
 TOOL_NAME = "record_judgments"
 UNCLEAR = "unclear"
@@ -87,6 +106,9 @@ class ItemJudgment:
     evidence_turn: int | None
     first_available_turn: int | None  # earliest caller turn where this information was given
     value: str | None  # q3_plan plan name, decline reason text
+    # verbatim quote from the caller turn first_available_turn ("" when unknown); last and
+    # defaulted so positional constructors and older cache entries keep working
+    first_available_quote: str = ""
 
 
 @dataclass(frozen=True)
@@ -96,6 +118,7 @@ class Judgment:
     model: str
     prompt_version: str
     source: Source
+    notes: tuple[str, ...] = ()  # harness notes from validation (dropped turn ids, blanked quotes)
 
 
 class Judge(Protocol):
@@ -108,38 +131,74 @@ class Judge(Protocol):
 
 SYSTEM_PROMPT = """\
 You label what a CALLER said on a phone call between a Medi-Cal renewal assistant (AGENT) and a member (CALLER). \
-Your labels feed a deterministic evaluator that checks whether the agent routed the call correctly, so it needs to know \
-what the caller actually communicated, independent of what the agent did or assumed.
+Your labels feed a deterministic evaluator that checks whether the agent routed the call correctly, so it needs to \
+know what the caller actually communicated, independent of what the agent did or assumed.
 
 For every item you are given, decide which scenario the caller's own words match, quote the caller, and find the \
 earliest caller turn where that information appeared.
 
+Transcript format: every line starts with a turn id. [A-open] is the agent's opening question. [C<t>] is CALLER \
+turn t and [A<t>] is AGENT turn t. Caller turn C<t> is spoken before agent turn A<t>, so the order is A-open, C0, \
+A0, C1, A1, C2, and so on: the AGENT line right before C<t> is A<t-1> (or A-open before C0). An indented line \
+continues the turn above it. Turn fields in your answer take caller turn ids only, like "C3", never an A id.
+
 Rules:
-1. Judge CALLER lines only. The agent's questions, assumptions, summaries and closing lines are never evidence. If the \
-agent says "it sounds like your coverage is active" and the caller never said so, the caller did not say so.
+1. Use AGENT lines only to know which question a CALLER line answers. Facts come only from CALLER words. An agent \
+summary or assumption is never evidence: if the agent says "it sounds like your coverage is active" and the caller \
+never said so, the caller did not say so.
 2. Label every item, including items the agent never asked about. Callers often volunteer information before it is \
 asked (for example mentioning a move out of the county in their first reply). Do not depend on the order of the \
-agent's questions or on whether they were asked at all. Map the caller's words to the scenario meanings literally.
-3. One statement answers an item only if its words address that item. A plain yes to the opening offer is the answer \
-to the intent item only; it is not evidence for a later item unless the caller adds specific content about it.
-4. first_available_turn: the earliest CALLER turn that already contained the information, even if it came before the \
-agent asked. evidence_turn: the CALLER turn of the quote you give (usually the clearest statement). Use the bracketed \
-turn numbers of CALLER lines only.
-5. evidence: a short verbatim quote copied from a CALLER line, no paraphrase.
-6. not_discussed: the caller never gave this information. Use evidence "", both turns null, value null.
-7. unclear: the caller addressed the item but their words cannot be mapped to exactly one scenario (they hedge, \
+agent's questions or on whether they were asked at all. Map by meaning. Implied answers are allowed, with \
+confidence per rule 10.
+3. A short reply such as "yes", "no" or "sure" answers only the question in the AGENT line right before it. Any \
+other item is answered only by caller words whose content addresses that item.
+4. Corrections: if the caller corrects an earlier answer, the final answer is the corrected one. evidence quotes \
+the correction, and first_available_turn is the turn where the caller first stated the corrected answer; the \
+superseded answer does not count as available.
+5. q5_choice (phone or in person) and the opener. The opening question already says "over the phone", so agreeing \
+to it at C0, even in words like "yes, over the phone is fine", answers q1_intent only and is not a q5_choice \
+answer: the in person option had not been offered. q5_choice is answered only when the caller (a) answers the \
+q5_choice question, or (b) states how they want to complete the yellow packet they have, for example asking to \
+finish or fill out the packet over the phone now, or asking for an in person appointment to go through it. Case (b) \
+counts in any turn, before the agent offers the choice and even in the same sentence as other answers, as long as \
+the caller ties phone or in person to completing the packet. Label case (b) as a volunteered preference (by_phone \
+or in_person) with confidence 0.7 to 0.85, first_available_turn being the first turn that ties the two.
+6. first_available_turn: the earliest CALLER turn that already contained the information, even if it came before \
+the agent asked. first_available_quote: a short verbatim quote from that same CALLER turn showing the information. \
+evidence_turn: the CALLER turn of the evidence quote (usually the clearest statement, which may be later).
+7. evidence: a short verbatim quote copied from a CALLER line, no paraphrase.
+8. not_discussed: the caller never gave this information. Use evidence "" and first_available_quote "", both turns \
+null, value null.
+9. unclear: the caller addressed the item but their words cannot be mapped to exactly one scenario (they hedge, \
 contradict themselves without settling, or give an answer no scenario covers). Quote the conflicting words in \
 evidence, cite the latest relevant turn, keep confidence at or below 0.6. If a scenario's meaning explicitly covers \
-uncertainty (for example "not active, or unsure"), a hedged answer maps to that scenario, not to unclear. If the \
-caller clearly corrects an earlier answer, use the corrected one.
-8. confidence: 0.9 or above only for an explicit, unambiguous statement; 0.7 to 0.89 when the meaning is clear but \
+uncertainty (for example "not active, or unsure"), a hedged answer maps to that scenario, not to unclear.
+10. confidence: 0.9 or above only for an explicit, unambiguous statement; 0.7 to 0.89 when the meaning is clear but \
 indirect or implied; 0.4 to 0.69 for weak or partial evidence; below 0.4 when guessing. For not_discussed it is how \
 sure you are the caller never gave the information.
-9. value: null unless the item says it captures a value. The plan item captures the plan name exactly as one of its \
-listed options, or "Other: <name>" if the caller named a plan not in the list. The decline item captures the caller's \
-stated reason, close to their words.
-10. The decline item asks why the caller does not want help. Label it only from a reason the caller gives for \
+11. value: null unless the item says it captures a value. The plan item captures the plan name exactly as one of \
+its listed options, or "Other: <name>" if the caller named a plan not in the list. The decline item captures the \
+caller's stated reason, close to their words.
+12. The decline item asks why the caller does not want help. Label it only from a reason the caller gives for \
 declining or for not needing help after declining; if the caller never declined, it is not_discussed.
+
+Worked example (shortened, not from your transcript):
+[A-open] AGENT: First, would you like our help renewing your Medi-Cal right now, over the phone?
+[C0] CALLER: Sure, over the phone works.
+[A0] AGENT: Do you currently have active Medi-Cal coverage?
+[C1] CALLER: Yes, I think so.
+[A1] AGENT: Do you currently have any other health insurance?
+[C2] CALLER: No. Oh wait, I found the letter, my Medi-Cal ended last month. I have the yellow packet here, can we \
+fill it out over the phone?
+Labels:
+q1_intent: yes, evidence "Sure, over the phone works.", evidence_turn C0, first_available_turn C0, confidence 0.95.
+q2_active: inactive, evidence "my Medi-Cal ended last month", evidence_turn C2, first_available_turn C2 (the \
+correction; the C1 answer is superseded), confidence 0.9.
+q3_coverage: false, evidence "No.", evidence_turn C2, first_available_turn C2, confidence 0.9 (short reply to A1).
+q5_packet: still_has, evidence "I have the yellow packet here", turn C2, confidence 0.8 (implied: has it, not \
+submitted).
+q5_choice: by_phone, evidence "can we fill it out over the phone?", evidence_turn C2, first_available_turn C2, \
+confidence 0.8, volunteered before the choice was offered. C0 is not a q5_choice answer.
 
 Call the record_judgments tool exactly once with every item. Do not answer in prose."""
 
@@ -182,8 +241,33 @@ def render_items(spec: FlowSpec) -> str:
     return "\n\n".join(blocks)
 
 
+CONTINUATION_INDENT = "    "
+_CALLER_ID = re.compile(r"^C(\d+)$")
+
+
+def turn_id(role: str, turn: int) -> str:
+    """Transcript label: C<t> for caller turns, A<t> for agent turns, A-open for the opener."""
+    if role == "caller":
+        return f"C{turn}"
+    return "A-open" if turn < 0 else f"A{turn}"
+
+
+def caller_turn_ids(thread: Thread) -> list[str]:
+    return [turn_id("caller", m.turn) for m in thread.caller_messages()]
+
+
 def render_transcript(thread: Thread) -> str:
-    return "\n".join(f"[{m.turn}] {m.role.upper()}: {m.text}" for m in thread.messages)
+    """One labelled line per message; continuation lines indented, blank lines dropped.
+
+    Distinct C and A prefixes keep the model from citing an agent turn as caller
+    evidence, and indentation keeps every line attributable to a speaker.
+    """
+    out = []
+    for m in thread.messages:
+        lines = [ln.strip() for ln in m.text.splitlines() if ln.strip()] or [""]
+        out.append(f"[{turn_id(m.role, m.turn)}] {m.role.upper()}: {lines[0]}")
+        out.extend(CONTINUATION_INDENT + ln for ln in lines[1:])
+    return "\n".join(out)
 
 
 def build_user_message(spec: FlowSpec, thread: Thread) -> str:
@@ -198,7 +282,16 @@ def _nullable(t: str) -> dict:
     return {"anyOf": [{"type": t}, {"type": "null"}]}
 
 
-def build_tool(spec: FlowSpec) -> dict:
+def _turn_schema(thread: Thread, description: str) -> dict:
+    # Strict tool use documents enum and anyOf but not pattern, so the caller turn ids of
+    # this thread are an enum (each matches ^C\d+$). Agent ids cannot be emitted at all.
+    ids = caller_turn_ids(thread)
+    if not ids:
+        return {"type": "null"}
+    return {"anyOf": [{"type": "string", "enum": ids}, {"type": "null"}], "description": description}
+
+
+def build_tool(spec: FlowSpec, thread: Thread) -> dict:
     item_props = {}
     for item in spec.items.values():
         item_props[item.id] = {
@@ -208,11 +301,16 @@ def build_tool(spec: FlowSpec) -> dict:
                 "evidence": {"type": "string", "description": "Verbatim CALLER quote, or empty if not_discussed."},
                 "answer": {"type": "string", "enum": answer_enum(item)},
                 "confidence": {"type": "number", "description": "0 to 1, calibrated."},
-                "evidence_turn": _nullable("integer"),
-                "first_available_turn": _nullable("integer"),
+                "evidence_turn": _turn_schema(thread, "Caller turn id of the evidence quote, like C3."),
+                "first_available_turn": _turn_schema(thread, "Earliest caller turn id holding this information."),
+                "first_available_quote": {
+                    "type": "string",
+                    "description": "Verbatim quote from the first_available_turn CALLER line, or empty if not_discussed.",
+                },
                 "value": _nullable("string"),
             },
-            "required": ["evidence", "answer", "confidence", "evidence_turn", "first_available_turn", "value"],
+            "required": ["evidence", "answer", "confidence", "evidence_turn", "first_available_turn",
+                         "first_available_quote", "value"],
             "additionalProperties": False,
         }
     return {
@@ -244,10 +342,49 @@ def _unclear(item_id: str, note: str) -> ItemJudgment:
     return ItemJudgment(item_id, UNCLEAR, 0.0, f"[harness] {note}", None, None, None)
 
 
-def _turn(v: Any, caller_turns: set[int]) -> int | None:
-    if isinstance(v, bool) or not isinstance(v, int):
+def _turn(v: Any, caller_turns: set[int], where: str, notes: list[str]) -> int | None:
+    """Map a caller turn id ("C3") back to the int caller turn. Anything else is None with a note."""
+    if v is None:
         return None
-    return v if v in caller_turns else None
+    m = _CALLER_ID.match(v) if isinstance(v, str) else None
+    if m is None:
+        kind = "an agent turn id" if isinstance(v, str) and v.startswith("A") else "not a caller turn id"
+        notes.append(f"{where} {v!r} is {kind}, set to null")
+        return None
+    t = int(m.group(1))
+    if t not in caller_turns:
+        notes.append(f"{where} {v!r} is not a caller turn of this thread, set to null")
+        return None
+    return t
+
+
+_QUOTE_FOLD = str.maketrans({"\u2019": "'", "\u2018": "'", "\u201c": '"', "\u201d": '"', "\u2014": "-"})
+
+
+def _fold(text: str) -> str:
+    """Case, whitespace and typographic quote insensitive form, for substring checks only."""
+    return " ".join(text.translate(_QUOTE_FOLD).lower().split())
+
+
+def _quote_in(quote: str, turn_text: str) -> bool:
+    q = _fold(quote).strip(" .,!?\"'")
+    return bool(q) and q in _fold(turn_text)
+
+
+def _first_quote(raw_quote: Any, evidence: str, ev_turn: int | None, first: int | None,
+                 texts: dict[int, str], where: str, notes: list[str]) -> str:
+    """The model's quote if it is in caller turn `first`; else the evidence quote if that is the same
+    turn; else "". Never a quote from a different turn."""
+    if first is None:
+        return ""
+    quote = raw_quote.strip() if isinstance(raw_quote, str) else ""
+    if quote and _quote_in(quote, texts[first]):
+        return quote
+    if quote:
+        notes.append(f"{where} {quote[:60]!r} is not in caller turn C{first}, blanked")
+    if ev_turn == first and evidence and _quote_in(evidence, texts[first]):
+        return evidence
+    return ""
 
 
 def _normalize_plan(value: str, options: list[str]) -> str:
@@ -257,7 +394,7 @@ def _normalize_plan(value: str, options: list[str]) -> str:
     return value.strip()
 
 
-def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int]) -> ItemJudgment:
+def _one(spec: FlowSpec, item: Item, raw: Any, texts: dict[int, str], notes: list[str]) -> ItemJudgment:
     if not isinstance(raw, dict):
         return _unclear(item.id, "item missing from model output")
     answer = raw.get("answer")
@@ -267,8 +404,9 @@ def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int]) -> ItemJu
     confidence = float(conf) if isinstance(conf, (int, float)) and not isinstance(conf, bool) else 0.0
     confidence = min(1.0, max(0.0, confidence))
     evidence = raw.get("evidence") if isinstance(raw.get("evidence"), str) else ""
-    ev_turn = _turn(raw.get("evidence_turn"), caller_turns)
-    first = _turn(raw.get("first_available_turn"), caller_turns)
+    caller_turns = set(texts)
+    ev_turn = _turn(raw.get("evidence_turn"), caller_turns, f"{item.id}.evidence_turn", notes)
+    first = _turn(raw.get("first_available_turn"), caller_turns, f"{item.id}.first_available_turn", notes)
     value = raw.get("value") if isinstance(raw.get("value"), str) and raw.get("value").strip() else None
     if answer == NOT_DISCUSSED:
         return ItemJudgment(item.id, answer, confidence, "", None, None, None)
@@ -280,16 +418,21 @@ def _one(spec: FlowSpec, item: Item, raw: Any, caller_turns: set[int]) -> ItemJu
         value = None
     elif value and item.question.options:
         value = _normalize_plan(value, item.question.options)
-    return ItemJudgment(item.id, answer, confidence, evidence, ev_turn, first, value)
+    quote = _first_quote(raw.get("first_available_quote"), evidence, ev_turn, first, texts,
+                         f"{item.id}.first_available_quote", notes)
+    return ItemJudgment(item.id, answer, confidence, evidence, ev_turn, first, value, quote)
 
 
-def parse_tool_input(spec: FlowSpec, thread: Thread, raw: Any) -> dict[str, ItemJudgment]:
-    """Validate the model's tool input. Never raises."""
-    caller_turns = {m.turn for m in thread.caller_messages()}
+def parse_tool_input(
+    spec: FlowSpec, thread: Thread, raw: Any, notes: list[str] | None = None
+) -> dict[str, ItemJudgment]:
+    """Validate the model's tool input. Never raises. Harness notes are appended to `notes`."""
+    sink: list[str] = [] if notes is None else notes
+    texts = {m.turn: m.text for m in thread.caller_messages()}
     items_raw = raw.get("items") if isinstance(raw, dict) else None
     if not isinstance(items_raw, dict):
         items_raw = {}
-    return {iid: _one(spec, item, items_raw.get(iid), caller_turns) for iid, item in spec.items.items()}
+    return {iid: _one(spec, item, items_raw.get(iid), texts, sink) for iid, item in spec.items.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +470,7 @@ class ClaudeJudge:
         if not self.available:
             return None
         client = self._get_client()
-        tool = build_tool(spec)
+        tool = build_tool(spec, thread)
         messages = [{"role": "user", "content": build_user_message(spec, thread)}]
         import anthropic
 
@@ -359,8 +502,11 @@ class ClaudeJudge:
                 return None
             block = next((b for b in resp.content if b.type == "tool_use" and b.name == TOOL_NAME), None)
             if block is not None:
-                items = parse_tool_input(spec, thread, block.input)
-                return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "live")
+                notes: list[str] = []
+                items = parse_tool_input(spec, thread, block.input, notes)
+                for n in notes:
+                    _warn(f"{thread.thread_id}: {n}")
+                return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "live", tuple(notes))
             _warn(f"{thread.thread_id}: no tool call on attempt {attempt} (stop_reason={resp.stop_reason})")
         return None
 
@@ -383,22 +529,26 @@ class FakeJudge:
         return Judgment(thread.thread_id, items, self.model, PROMPT_VERSION, "fake")
 
 
-def _canonical_spec_items(spec: FlowSpec) -> str:
-    data = [
-        {
-            "id": item.id,
-            "question": item.question.text,
-            "options": item.question.options,
-            "scenarios": [[s.id, s.means] for s in item.question.scenarios],
-        }
-        for item in spec.items.values()
-    ]
-    return json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def cache_key(model: str, spec: FlowSpec, thread: Thread) -> str:
-    payload = "\n\x1e".join([model, PROMPT_VERSION, render_transcript(thread), _canonical_spec_items(spec)])
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    """Hash of everything the model sees: system prompt, tool schema, rendered user message.
+
+    PROMPT_VERSION stays in the key as a human readable label, but the key no longer
+    depends on someone remembering to bump it: any edit to the rules, the schema, the
+    item rendering or the transcript format changes the hash.
+    """
+    tool_json = json.dumps(build_tool(spec, thread), sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    parts = [
+        model,
+        PROMPT_VERSION,
+        _sha(SYSTEM_PROMPT),
+        _sha(tool_json),
+        _sha(build_user_message(spec, thread)),
+    ]
+    return _sha("\n\x1e".join(parts))
 
 
 class CachedJudge:
@@ -429,6 +579,7 @@ class CachedJudge:
             "model": j.model,
             "prompt_version": j.prompt_version,
             "items": {iid: asdict(ij) for iid, ij in j.items.items()},
+            "notes": list(j.notes),
         }
         data["entries"] = dict(sorted(data["entries"].items(), key=lambda kv: (kv[1]["thread_id"], kv[0])))
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -445,7 +596,8 @@ class CachedJudge:
             entry = self._load()["entries"].get(key)
             if entry is not None:
                 items = {iid: ItemJudgment(**ij) for iid, ij in entry["items"].items()}
-                return Judgment(thread.thread_id, items, entry["model"], entry["prompt_version"], "cache")
+                notes = tuple(n for n in entry.get("notes", []) if isinstance(n, str))
+                return Judgment(thread.thread_id, items, entry["model"], entry["prompt_version"], "cache", notes)
         if not self._live_allowed():
             return None
         j = self.inner.judge(spec, thread)  # type: ignore[union-attr]
@@ -464,6 +616,7 @@ def default_judge(live: bool = False) -> Judge:
 __all__ = [
     "PROMPT_VERSION", "ItemJudgment", "Judgment", "Judge", "ClaudeJudge", "CachedJudge", "FakeJudge",
     "default_judge", "cache_key", "build_tool", "answer_enum", "parse_tool_input", "render_transcript",
+    "turn_id",
 ]
 
 
@@ -491,10 +644,14 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"{t.thread_id}: no judgment (no valid key and no cache entry)")
             continue
         print(f"{t.thread_id} [{j.source}, {j.model}, {j.prompt_version}]")
+        for n in j.notes:
+            print(f"  note: {n}")
         for iid, ij in j.items.items():
             val = f" value={ij.value!r}" if ij.value else ""
             print(f"  {iid:13} {ij.answer:22} conf={ij.confidence:.2f} turn={ij.evidence_turn} "
                   f"first={ij.first_available_turn}{val}  {ij.evidence[:90]!r}")
+            if ij.first_available_quote and ij.first_available_turn != ij.evidence_turn:
+                print(f"  {'':13} first quote: {ij.first_available_quote[:90]!r}")
     return 1 if missing else 0
 
 

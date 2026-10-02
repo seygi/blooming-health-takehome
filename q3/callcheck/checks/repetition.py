@@ -49,14 +49,19 @@ def _volunteered(asked: list[tuple[int, str]], judgment: object) -> list[Finding
         # caller turn <= the asking agent turn was already on the table.
         if available > asked_turn:
             continue
-        evidence = getattr(items.get(item), "evidence", "") or ""
+        # Quote from the turn where the info first appeared. The judge's `evidence` quote may be
+        # from a later turn, so it is never used here: no quote beats a quote from the wrong turn.
+        quote = getattr(items.get(item), "first_available_quote", "") or ""
+        evidence = f"{item} asked at turn {asked_turn}; caller gave it at turn {available}"
+        if quote:
+            evidence += f': "{quote}"'
         findings.append(
             Finding(
                 check="repetition.asked_after_volunteered",
                 severity="minor",
                 gate=None,
                 turn=asked_turn,
-                evidence=f'{item} asked at turn {asked_turn}; caller gave it at turn {available}: "{evidence}"',
+                evidence=evidence,
                 problem=f"The agent asked {item} although the caller had already volunteered the answer.",
                 fix_hint=(
                     "Prompt: before asking a scripted question, check whether earlier caller turns already "
