@@ -297,11 +297,12 @@ def _ratio(n: int, d: int) -> str:
 
 def render_agreement(rows: list, item_ids: list[str], judge_desc: str) -> str:
     """Agreement table: model judge answers vs the author's hand labels (neither is ground truth)."""
-    lines = [f"callcheck agreement: {judge_desc} vs hand labels (the author's own reading, not ground truth)", ""]
+    lines = _wrap(f"callcheck agreement: {judge_desc} vs hand labels (the author's own reading, not ground "
+                  "truth)", "  ", "") + [""]
     judged = [r for r in rows if r.judged]
     if not judged:
-        lines.append("No model judgments available: no cache entry for any thread in q3/cache/judgments.json and "
-                     "no working ANTHROPIC_API_KEY.")
+        lines += _wrap("No model judgments available: no cache entry for any thread in q3/cache/judgments.json "
+                       "and no working ANTHROPIC_API_KEY.", "  ", "")
         lines.append("Create them with ANTHROPIC_API_KEY set: uv run callcheck --live")
         return "\n".join(ascii_text(ln) for ln in lines) + "\n"
     lines.append(f"{'thread':<10}  {'all items':<12}  {'on path':<12}  {'terminal':<9}  disagreements")

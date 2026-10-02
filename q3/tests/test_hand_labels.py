@@ -62,6 +62,7 @@ def test_agreement_table(spec, threads):
 def test_agreement_without_judgments_says_so(spec, threads):
     text = render_agreement(agreement(spec, threads, NoJudge()), list(spec.items), "model judge")
     assert "No model judgments available" in text and "--live" in text
+    assert max(len(ln) for ln in text.splitlines()) <= 120
 
 
 # ---- CLI -------------------------------------------------------------------------------
