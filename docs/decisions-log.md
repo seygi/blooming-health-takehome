@@ -10,3 +10,10 @@
 - Judge labels all 8 items for every thread (path independent); decline is not_discussed unless the caller declined; a plain yes to q1 is not evidence for later items.
 - Judge API errors (bad key, model not found, network) return None (harness reports NEEDS_REVIEW), never crash; bad credentials disable live calls for the rest of the run.
 - Server side refusal fallbacks not enabled: on Sonnet 5.5 they only retry cyber and frontier_llm declines, irrelevant for this domain; a refusal returns None.
+- q3_plan is capture only (one placeholder branch, same disposition for any plan): a missing or unsure plan never stops the routing walk; a missing plan name is a minor soft finding, not a gate failure.
+- Skipping an item on the expected path is excused when the caller had already given a confident answer before the agent moved on; otherwise it is a major correct_routing finding (owner engine).
+- Wrong terminal and path divergence are marked uncertain (NEEDS_REVIEW, not FAIL) when any branch deciding answer on the expected path is below min_confidence_score (0.7, read from team_config quality_gates).
+- With no judgment, decisive_answers shows "review" in the gate table (not assessed is never pass).
+- Fix list shows hard gate fixes before soft ones, each ranked by threads affected then severity, so a soft re-ask seen in 7 threads does not bury a leak that fails 4.
+- `--json` writes q3/out/report.json (or `--out`) and prints only the path; exit code 3 for input errors, since 2 means NEEDS_REVIEW.
+- Text report folds transcript unicode to ASCII (em dash to "-", curly quotes to straight) so output is plain ASCII.
